@@ -7,60 +7,57 @@
 
 # 一、现状 / 当前任务
 
-**当前版本：v06（2026-08-08，noise/bg 双轴出图）**
-**计算与缓存仍基于 v05；主产物作图：`PoD_esti_v06.ipynb`。v05 保留。**
+**当前版本：v10（2026-08-08，已跑通）—— 基于 v05，不基于 v06**
+**主产物：`PoD_esti_v10.ipynb` + `pod_esti_v10_core.py` + `run_pod_v10_scan.py`**
 
-## 1. 目标一句话
+## 1. 目标一句话（v10）
 
-从 `lidar_histogram_sim_v45.ipynb` 提取 SPAD（Single-Photon Avalanche Diode，单光子雪崩二极管）
-与二值采样内核，求出：**噪点率分别低于 10 ppm / 100 ppm / 0.1% / 0.5% / 1% / 5% 的检测阈值**，以及在各阈值下
-**PoD（Probability of Detection，探测概率）= 50% / 90% 所需的回波能量、临界 peak 均值、等效距离**。
+在 **per-shot `hist_i`** 架构下重算：每次实现记录最多 4 发的 `hist_i`，
+`hist_add = sum(hist_1…hist_N)`；**noise** = 单次 `hist_i` 底噪，**bg** = `hist_add` 底噪，
+**peak** 一律在 `hist_add` 上统计。三张新图已出。**不复用 v05/v06 缓存。**
 
-## 1b. 口径（v06）
+## 1b. 口径（v10）
 
 | 符号 | 含义 |
 |---|---|
-| **noise** | 环境标准：折合 N_shots=1、27 SPAD、每 1 ns bin 的平衡态底；与发数无关 |
-| **bg** | 当前 N_shots 下统计窗实测 baseline（=`noise_mc`）；N=4 时 ≈4·noise |
-
-凡横/纵轴原为 noise（或 noise 相关）的图，都再画一张以 **bg** 为轴的图。
+| `hist_i` | 第 i 发、宏像元 27 SPAD 的二值累加直方图（计数 ≤27） |
+| `hist_add` | 前 N 发之和；N∈{1,2,4} 由 **同一次 N=4 仿真的前缀和** 得到 |
+| **noise** | 单次 `hist_i` 统计窗均值（环境标准；与 N 无关） |
+| **bg** | `hist_add` 统计窗均值 |
+| **peak** | `hist_add` 上统计窗（纯噪声）或信号窗（含信号）的最大 bin |
 
 ## 2. 当前可运行状态
 
-- **`PoD_esti_v06.ipynb`**：从 v05 复制并插入口径 cell；模块 5/5b/6/8 双轴出图；模块 7（能量轴）不双循环，图例标 bg/noise。
-  - 缓存仍读 **`pod_esti_v05_cache_noise.npz` / `pod_esti_v05_cache_pod.npz`**（无新 MC）。
-  - 关键作图 cell 已 `ast.parse` 通过；**尚未整本 execute**（应用缓存命中后只重跑作图 cell）。
-  - 升级/修复脚本：`upgrade_pod_esti_v06_bg.py`、`fix_pod_esti_v06_axes.py`。
-- **`PoD_esti_v05.ipynb`**：FAR 六档 + 缓存并行；PoD 全量已由 `run_pod_scan_v05.py` 跑完（208 档）。
-- 执行器：`run_notebook.py`。
+- **全量 MC 已完成**：noise 311 s（48×200k），signal 270 s（48×5×8k），20 进程。
+- **`PoD_esti_v10.ipynb` 已 `nbconvert --execute`**，图 `pod_v10_fig1/2/3*.png` 已写出。
+- 中位 bg/noise：**N=1→1.00，N=2→2.00，N=4→4.00**（口径自洽）。
 
-## 3. 当前生效关键参数（v05）
+## 3. 当前生效关键参数（v10）
 
 ```
-物理参数      与 v45 / v02 一致（未擅自改）
-宏像元        9×3 = 27 SPAD；N_SHOTS_LIST = [1, 4] ⇒ 硬上限 27 / 108
-仿真窗        0–200 ns；掐头去尾各 24 ns ⇒ 统计窗 152 bins
-目标          D_TARGET = 15.0 m，ρ = 0.10，ToF ≈ 100.07 ns
-噪声网格      N=1: 0.25→12 步长 0.25（48 档）
-              N=4: 0.25→40 步长 0.25（160 档）  ⇒ 合计 208 档
-N_MC_NOISE    1_000_000 / 档
-FAR_SPECS     10ppm, 100ppm, 0.1%, 0.5%, 1%, 5%（从严到松）
-PoD           对完整 NOISE_GRID × 六档 FAR 求 PoD50/90 临界点（须重跑）
-并行          全量 PoD 用多进程脚本 run_pod_scan_v05.py（--workers 20）
-              notebook 内为线程版，受 GIL 限制只能吃十几~三十几个百分点，仅作缓存命中用
-              OMP/MKL/OPENBLAS 线程=1（防 BLAS 抢核）；噪声 MC_CHUNK=5000
-缓存          pod_esti_v05_cache_*.npz
-              noise fallback: v04；PoD fallback: 无；partial: *.partial.npz
+物理参数      与 v05 / v45 一致（未擅自改）
+宏像元        9×3 = 27 SPAD；N_SHOTS_MAX=4；分析 N∈{1,2,4}
+噪声网格      按单次 noise：0.25→12 步长 0.25（48 档）；N=2/4 由前缀和派生
+N_MC_NOISE    200_000 / 档
+N_MC_SIG      8_000 / (noise, boost)
+BOOST_LIST    [0, 0.004, 0.008, 0.016, 0.032]
+并行          ProcessPoolExecutor，默认 20 进程
+缓存          pod_esti_v10_cache_noise.npz / pod_esti_v10_cache_signal.npz
 ```
 
 ## 4. 待办
 
-- [x] **PoD 全量已跑完**：`run_pod_scan_v05.py --workers 20`，24.9 min，208/208 档 × 六档 FAR
-- [x] **v06 双轴出图代码落地**（`PoD_esti_v06.ipynb`）
-- [ ] 在 `PoD_esti_v06.ipynb` 重跑：模块 5→口径 cell→5b/6/7/8，确认秒级命中 v05 缓存并出 noise+bg 两套图
-- [ ] 确认模块 5b / 6 六条阈值曲线（noise 轴与 bg 轴）
-- [ ] 若改动计算 cell，需重跑 `build_pod_core_v05.py` 同步内核（v06 未改物理计算）
-- [ ] （后续）固件阈值查找表拟合；直接扫距离；加 DCR
+- [x] `pod_esti_v10_core.py`：`hist_i` + 前缀和 API
+- [x] `run_pod_v10_scan.py`：纯噪声 + 固定信号扫描（新缓存）
+- [x] `PoD_esti_v10.ipynb`：三组新图 + execute
+- [ ] （可选）v10 架构上接回六档 FAR / PoD50·90
+- [ ] （后续）固件阈值查找表；DCR 等
+
+## 5. v10 关键结论（简）
+
+1. **peak–bg 形状**：按 N 归一后 N=2/4 相对 N=1 的 RMS 残差约 **1.52 / 2.59** 计数，**不完全重合**（有系统弯曲差异）。
+2. **bg+5σ vs T@1%**：T 系统性 **高于** bg+5σ（mean Δ ≈ +3.1/+4.3/+5.8），经验规则偏松。
+3. **固定信号**：`peak_mean` vs noise 的 R²≈0.997–1.000（很直）；但斜率随信号增强下降（N=1：1.20→0.68），**不是可加平移**；std 的线性更差。
 
 ## 5. 仍有效的 v02 定量结论（抽样）
 
@@ -78,6 +75,29 @@ PoD           对完整 NOISE_GRID × 六档 FAR 求 PoD50/90 临界点（须重
 ---
 
 # 二、历史记录（只追加，不删改）
+
+## v10 —— 2026-08-08　per-shot hist_i / hist_add 全量重算（基于 v05）
+
+**新增**
+- `pod_esti_v10_core.py`：`noise_hists_per_shot`、`binary_macro_stepping_per_shot`、前缀和统计；import 不跑 MC。
+- `run_pod_v10_scan.py`：noise/signal/all；禁止旧缓存；稀疏检查点。
+- `build_pod_esti_v10.py` → `PoD_esti_v10.ipynb`（图1 peak–bg；图2 bg+5σ vs T@1%；图3 固定信号）。
+- 缓存：`pod_esti_v10_cache_noise.npz`（48×200k，311 s）、`pod_esti_v10_cache_signal.npz`（48×5×8k，270 s）。
+
+**未改**
+- 物理参数（D、ρ、脉冲、bin 宽等）与 v05 一致。
+- 不基于 v06；不读 v05 缓存。
+
+**运行结论**
+- bg/noise 中位 = 1/2/4（N=1/2/4）。
+- 归一 peak–bg：N=2/4 相对 N=1 RMS = 1.52 / 2.59。
+- T@1% − (bg+5σ) 均值 = +3.13 / +4.29 / +5.78（N=1/2/4）→ 5σ 规则偏松。
+- 固定信号：mean–noise R²≥0.997，但斜率随 E 下降（死时间/饱和）；非纯平移。
+
+**踩过的坑**
+- `r_det_for_noise` 必须传 `n_tr=27`。
+- 检查点 `_save_noise` 不能假设 `rows` 含全部 k（KeyError: 4）。
+- 信号路径用 `binary_macro_stepping_per_shot` + 前缀和，勿对 N=1/2 各扫一遍。
 
 ## v06 —— 2026-08-08　noise / bg 双轴出图
 

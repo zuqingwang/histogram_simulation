@@ -33,7 +33,10 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
 import numpy as np
 
-import pod_esti_v11_core as core
+try:                                  # v20 起优先用 v20 内核；两者物理部分逐字相同
+    import pod_esti_v20_core as core
+except ImportError:
+    import pod_esti_v11_core as core
 
 CACHE = "scan_hist_std_peak_cache.npz"
 CACHE_CKPT = "scan_hist_std_peak_cache.partial.npz"

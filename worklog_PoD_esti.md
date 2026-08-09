@@ -7,15 +7,26 @@
 
 # 一、现状 / 当前任务
 
-**当前版本：v11（2026-08-08）—— 统一 bg 步长 0.25 + 模块 10 阈值倍数**
-**主产物：`PoD_esti_v11.ipynb`（由 `PoD_esti_v10.ipynb` 经 `upgrade_pod_esti_v11_from_v10.py` 升级）**
+**当前版本：v20（2026-08-09）—— 在 v11 上追加模块 11–17，一条不删**
+**主产物：`PoD_esti_v20.ipynb`（由 `PoD_esti_v11.ipynb` 经 `upgrade_pod_esti_v20_from_v11.py` 升级）**
 
-## 1. 目标一句话（v11）
+## 1. 目标一句话（v20）
 
-在 v10 完整流程上：把各 N 的目标 **bg 网格统一为步长 0.25**（`noise_amb=bg/N`），并新增模块 10 检验同 bg 下阈值倍数 ρ=T_N/T_1 是否近似常数、解释倍数来源。  
-**不复用** v10 缓存。
+在 v11 完整流程上追加 7 个模块，把用户的 4 条要求补齐，并把本轮的旁支分析并入正本：
 
-## 1b. 口径（v11）
+| 模块 | 内容 | 对应要求 |
+|---|---|---|
+| 11 | 每条 hist 内 152 bin 的 std 均值 / peak 均值 / peak 标准差 随 bg | 要求 1 后半 |
+| 12 | **连续（实数）阈值曲线**，折线不再是整数阶梯 | 要求 1「不要画阶梯」 |
+| 13 | FAR=5% / 1% / 100 ppm 下 PoD50 与 PoD90 所需信号的均值 | 要求 2 |
+| 14 | 平方反比测远（纯 1/D² 与含大气衰减两种口径） | 要求 3 |
+| 15 | 同信号强度、不同 bg 时 peak 分布怎么变 | 要求 4 |
+| 16 | 宏像元 3×9 vs 3×6 阈值对比 | 旁支分析并入 |
+| 17 | 理论汇总（阈值倍数模型 + 引擎一致性模型 + 口径说明） | 旁支分析并入 |
+
+**v11 的内容一条都没删**；物理参数一个都没改。
+
+## 1b. 口径（v11 起沿用）
 
 | 符号 | 含义 |
 |---|---|
@@ -27,20 +38,30 @@
 
 ## 2. 当前可运行状态
 
-- **`PoD_esti_v11.ipynb`（38 cell）**：模块 0–9 = v10 主体（网格改为统一 bg）；模块 10 = 阈值倍数。
-- **Run All**：缺缓存时 `_run_cmd_stream` → `run_pod_v11_noise_scan.py` / `run_pod_v11_pod_scan.py`。
-- 噪声任务键：`(N, bg)`，共 48×3=144 档；每档打印 `%`+ETA。
-- 冒烟（limit=2, n_mc=2000）已通过；**冒烟缓存已删**，待全量重算。
+- **`PoD_esti_v20.ipynb`（51 cell）**：模块 0–10 = v11 主体（逐字保留）；模块 11–17 = v20 新增。
+- **三份扫描缓存全部齐了**（2026-08-09）：
+  - `pod_esti_v11_cache_noise.npz`　144 档 × 1,000,000 MC，全 done
+  - `pod_esti_v11_cache_pod.npz`　　144 档，PoD 扫描 13.8 min 跑完
+  - `pod_esti_v20_cache_signal.npz`　1296 档 × 8,000 MC，信号扫描 11.7 min 跑完
+  - `scan_hist_std_peak_cache.npz`　144 档 × 100,000 MC（模块 11 用）
+  - v20 主缓存名是 `pod_esti_v20_cache_*`，v11 的已登记为 **fallback**，读到即同步写回，**不会重算**。
+- **Run All**：缺缓存时 `_run_cmd_stream` 自动调 `build_pod_core_v20.py` /
+  `run_pod_v20_noise_scan.py` / `run_pod_v20_pod_scan.py` / `run_pod_v20_sig_scan.py` /
+  `scan_hist_std_peak.py`。
+- **无头验证**：`python check_v20_modules.py --syntax`（语法）与 `--all`（真跑模块 8–16）
+  已全部通过，0 错误，图已落盘。
 
-## 3. 当前生效关键参数（v11）
+## 3. 当前生效关键参数（v20）
 
 ```
-物理参数      与 v10/v05 一致（未擅自改）
+物理参数      与 v11/v10/v05 逐字一致（未擅自改任何一项）
 BG_GRID       0.25→12 / 0.25（48）；NOISE_GRID[n]=BG_GRID
 仿真          noise_amb = bg / N
 N_MC_NOISE    1_000_000
-模块 9.3      BOOST=[0,0.004,…,0.032]，N_MC_SIG=8000，扫 BG_GRID
-缓存          pod_esti_v11_cache_noise/pod/signal.npz；fallback 空
+模块 9.3/15   BOOST=[0,0.004,…,0.032]（9 档），N_MC_SIG=8000，扫 BG_GRID
+模块 11       N_MC_HSP=100_000（scan_hist_std_peak.py）
+模块 13/14    FAR_M13=[5%, 1%, 100ppm]，LEVELS=[0.50, 0.90]
+缓存          pod_esti_v20_cache_noise/pod/signal.npz；noise/pod 有 v11 fallback
 ```
 
 ## 4. 待办
@@ -52,41 +73,37 @@ N_MC_NOISE    1_000_000
 - [x] 宏像元 3×9 vs 3×6 阈值对比（`compare_macro_3x9_vs_3x6.py`，全量已跑完）
 - [x] 核对 PoD 引擎与 `lidar_histogram_sim_v45.ipynb` 是否一致（`check_engine_vs_v45.py`）
 - [x] 写出引擎一致性的**理论模型** `theory_engine_equivalence.md` + `.py`（5 个环节逐个验证）
+- [x] **PoD 全量扫描跑完**（144 档，13.8 min）
+- [x] **信号全量扫描跑完**（1296 档，11.7 min，改成多进程脚本）
+- [x] 生成 v20：模块 11–17 全部落地并无头验证通过
+- [ ] 在 Jupyter 里 Restart & Run All 跑一遍 `PoD_esti_v20.ipynb`（缓存都在，主要是确认渲染）
 - [ ] 复核步进引擎 `binary_macro_stepping` 的半步对齐（T5b 里两个 dt 都偏低 0.7–2.2σ）；
       它是 PoD 信号支路用的引擎，纯噪声扫描不受影响
-- [ ] **【用户要提醒我继续跑的任务】整本执行 `PoD_esti_v11.ipynb`（噪声/PoD/模块 9–10 全量）**
-      —— 详细命令与前置条件见下面「6. 待续跑任务（提醒我用）」
 - [ ] 用模块 10 的 MC 曲线对照模型第 10 节的 7 条检查清单
+- [ ] （可选）加大 `N_MC_POD_VERIFY`、收紧 `POD_VERIFY_TOL`，抹平模块 14 测距曲线的抖动
 - [ ] （可选）把「亚阈雪崩不复位」的非顺延变体做成开关，验证同 bg 下阈值曲线的二阶差异
 - [ ] （后续）固件阈值表；DCR 等
 
-## 6. 待续跑任务（提醒我用）
-
-> 用户说"扫描我可以稍后自己跑"。下次要继续时，直接把下面这段贴给我，或说
-> **"继续跑 PoD_esti_v11 全量扫描"**。
-
-**任务：整本跑 `PoD_esti_v11.ipynb`（噪声扫描 + PoD 扫描 + 模块 9/10 出图）**
-
-前置：确认没有残留 python 进程占着 20 线程；确认 `pod_esti_v11_core.py` 是最新
-（若改过 notebook，要先 `python build_pod_core_v11.py` 重新导出内核）。
+## 6. 重跑命令（缓存都在，正常不需要跑）
 
 ```powershell
 $env:PYTHONIOENCODING="utf-8"
-# ① 纯噪声扫描：48 bg × N∈{1,2,4} = 144 档 × 1,000,000 MC
-python run_pod_v11_noise_scan.py --workers 20
-# ② PoD 扫描（依赖 ① 的阈值）
-python run_pod_v11_pod_scan.py --workers 20
-# ③ 然后 Restart & Run All 跑 PoD_esti_v11.ipynb（缓存已在，模块 9/10 会直接出图）
+python build_pod_core_v20.py                          # 改过 notebook 计算 cell 后必须重新导出内核
+python run_pod_v20_noise_scan.py --workers 20         # 48 bg × N∈{1,2,4} × 1,000,000 MC
+python run_pod_v20_pod_scan.py   --workers 20         # 依赖上一步的阈值，约 14 min（20 进程）
+python run_pod_v20_sig_scan.py   --workers 20         # 48 bg × 9 boost × 3 N × 8,000 MC，约 12 min
+python scan_hist_std_peak.py     --workers 20 --n-mc 100000   # 模块 11
+python check_v20_modules.py --syntax                  # 语法自检
+python check_v20_modules.py --all                     # 无头真跑模块 8–16
 ```
 
 注意事项（都踩过）：
 - **不要**把输出接 `| Tee-Object`。中断 shell 会杀掉管道消费端，父进程卡在 stdout 写入上，
-  worker 空烧 CPU 但检查点不再前进。要留日志就用 `*> 日志.txt` 直接重定向。
-- 两个脚本都有 `.partial.npz` 检查点，可断点续跑；缓存键含 `N_MC_NOISE` 与 `BG_GRID`，
+  worker 空烧 CPU 但检查点不再前进。要留日志就用 `cmd /c "… > 日志.txt 2>&1"`。
+- 所有脚本都有 `.partial.npz` 检查点，可断点续跑；缓存键含 MC 条数与 `BG_GRID`，
   参数一变会自动判定失效并重算。
-- 预计耗时：噪声扫描远长于 `compare_macro_3x9_vs_3x6.py` 的 10.5 min（后者每档才 200,000 MC）。
 
-**另一个可选续跑任务**：`compare_macro_3x9_vs_3x6.py` 目前每档 200,000 MC，
+**可选续跑任务**：`compare_macro_3x9_vs_3x6.py` 目前每档 200,000 MC，
 只够支撑 FAR=1% / 0.1%；若要 100 ppm 的阈值，需要 `--n-mc 2000000` 重跑
 （缓存键含 n_mc，会自动重算，不会误用旧数据）。
 
@@ -106,6 +123,112 @@ python run_pod_v11_pod_scan.py --workers 20
 ---
 
 # 二、历史记录（只追加，不删改）
+
+## v20 —— 2026-08-09　在 v11 上追加模块 11–17，补齐 4 条要求
+
+**背景**：用户提出 4 条要求，让我先核对 v11 满足到什么程度，缺的补上、已有的不许删，
+并把本轮做的旁支分析（宏像元对比、引擎一致性理论、阈值倍数理论）也并进来，生成 v20。
+
+### 核对结论（v11 的缺口）
+
+| 要求 | v11 状态 | 处理 |
+|---|---|---|
+| 1a　N=1/2/4、bg 步长 0.25 扫描 + 阈值曲线 | ✅ 有（模块 5/6） | 保留 |
+| 1a′　阈值曲线"用折线不要阶梯" | ❌ 阈值是整数，画出来必然是阶梯 | **新增模块 12** 连续阈值 |
+| 1b　每条 hist 的 std 的均值 vs bg | ❌ notebook 里没有（只在独立脚本 `scan_hist_std_peak.py` 里） | **新增模块 11** 并入正本 |
+| 1c　peak 均值 vs bg | ✅ 有（模块 9.1/9.2 图 C） | 模块 11 再给一版带解析对照 |
+| 1d　peak std vs bg | ❌ 只画过 `bg+5σ`，没单独画 σ | **新增模块 11** ③ |
+| 2　5%/1%/100ppm × PoD50/90 的信号均值 | ⚠️ 数据在 `POD_RES` 里，但模块 8 只画 PoD90、6 条 FAR 混在一起 | **新增模块 13** 专门交付 |
+| 3　平方反比测远 | ⚠️ `equiv_distance()` 含大气衰减，不是纯 1/D² | **新增模块 14** 两种口径都给 |
+| 4　同信号不同 bg 下 peak 分布/均值/std | ⚠️ 模块 9.3 只画了均值和 std，没看分布形状，也没回答"是否只是加 bg" | **新增模块 15** |
+
+### 新增（`upgrade_pod_esti_v20_from_v11.py` 生成，38 → 51 cell）
+
+- **模块 11**（cell 38/39）：单条 hist 内 152 bin 的 std 均值、peak 均值、peak 标准差，
+  vs bg 与 vs noise 各一张三联图，附解析对照 √(bg(1−bg/27N)) 与纯泊松 √bg。
+  数据读 `scan_hist_std_peak_cache.npz`（缺失时自动调脚本）。
+- **模块 12**（cell 40/41）：新函数 `far_threshold_continuous(cnt, far)` ——
+  在 log(生存函数) 上线性插值求实数阈值 $T_c$，满足 $T_{整数}=\lceil T_c\rceil$。
+  三张图：连续阈值折线（淡色叠整数阶梯）、三个 N 的对比与阈值余量 $T_c-\mathrm{bg}$、
+  有效 z 值 $(T_c-\mu_{peak})/\sigma_{peak}$。
+- **模块 13**（cell 42/43）：5%/1%/100ppm × PoD50/90 × N=1/2/4 × 48 个 bg。
+  四种信号口径：`peak_mean`、净峰高 `S_net=peak−bg`、
+  **净增量 `ΔS=peak_mean−peak_mean(boost=0)`**、临界能量 `E_crit[nJ]` 与等效光子数。
+- **模块 14**（cell 44/45）：新函数 `range_inverse_square(boost)=D_ref/√boost`，
+  与含大气衰减的 `equiv_distance()` 并排画。
+- **模块 15**（cell 46/47）：用模块 9.3 的**完整 peak 分布**（bincount，不只是均值方差）
+  回答要求 4；新增 `_moments_from_cnt()` 求偏度。
+- **模块 16**（cell 48/49）：宏像元 3×9 vs 3×6 浓缩四联图，读独立脚本的缓存。
+- **模块 17**（cell 50）：理论汇总 markdown。
+
+### 工程改动（不动任何物理参数）
+
+- **缓存名**：`pod_esti_v20_cache_*`；v11 的两个登记为 `CACHE_*_FALLBACK`，
+  读到即同步写回 v20 主名（规则三）。**已跑完的 v11 噪声/PoD 结果不会重算。**
+- **模块 9.3 从串行改多进程**：新脚本 `run_pod_v20_sig_scan.py`，
+  把 48 bg × 9 boost × 3 N = 1296 个任务丢进 ProcessPool（20 进程），每 20 档写检查点。
+  实测 **11.7 min**；原来在 notebook 里串行跑要几个小时且中断即全丢。
+- 新脚本 `build_pod_core_v20.py` / `run_pod_v20_noise_scan.py` / `run_pod_v20_pod_scan.py`
+  （由 v11 版逐字替换版本号生成）。
+- 新工具 `check_v20_modules.py`：不用 Jupyter 就能对 notebook 做语法自检（`--syntax`）
+  和无头真跑（`--all`，matplotlib 用 Agg、`plt.show` 短路）。
+
+### 本轮实际跑的扫描
+
+| 扫描 | 规模 | 耗时 |
+|---|---|---|
+| `run_pod_v11_pod_scan.py` | 剩余 32/144 档（有 112 档旧检查点） | 13.8 min |
+| `run_pod_v20_sig_scan.py` | 1296 档 × 8,000 MC | 11.7 min |
+
+### 关键数值结论
+
+**要求 1（模块 11）**：单条 hist 内的 std 贴合二项解析 √(bg(1−bg/27N))，
+明显低于纯泊松 √bg —— 1 bit SPAD 的亚泊松压缩。bg=10.75 时 N=1 实测 2.480（解析 2.544）、
+N=4 实测 3.018（解析 3.111），实测系统性略低约 2–3%，来自 bin 间正相关使样本 std 有下偏。
+peak 标准差随 bg 先升后平（N=1 在 bg≈9 后掉头，因 p_eq 越过 0.5 附近方差被压）。
+
+**要求 1′（模块 12）**：连续阈值曲线完全光滑，且 `ceil(Tc)` 与原整数阈值逐档一致。
+1e6 MC 下 10 ppm 那条在小 bg 处有 6/48（N=1）、3/48（N=2）档落到 MC 分辨极限，记为 NaN 不外推。
+
+**要求 2（模块 13）**：以 FAR=1%、PoD90 为例，bg=10.75 时临界发射能量
+N=1 需 **175.6 nJ**、N=2 需 22.57 nJ、N=4 只需 **8.42 nJ**（相差 20 倍）。
+同一条件下净峰高 `S_net` 分别是 11.71 / 16.55 / 19.49 计数。
+
+**要求 3（模块 14）**：α=0.1 /km 时大气衰减的修正**小于 3%**，
+在本仓库关心的距离段平方反比就是主要规律。FAR=1%、PoD90、bg=6.25 时纯 1/D² 测距
+N=1 为 56.4 m、N=2 为 112.3 m、N=4 为 168.0 m。曲线逐点有几米抖动，
+来自整数阈值阶梯 + PoD 临界点求解的 MC 噪声（容差 2%），要看趋势不要抠单点。
+
+**要求 4（模块 15）—— 三条明确结论**：
+1. **peak 均值不是简单地加上 bg。** boost=0.016 时 N=1 的 Δμ 从 bg=0.25 的 6.77
+   掉到 bg=10.25 的 **2.69**（掉 60%）；N=4 从 27.82 掉到 22.45（掉 19%）。
+   提出"**抢占**"模型解释主因：1 bit SPAD 一个 bin 只能亮一次，环境光先点亮就轮不到信号，
+   净增量 ∝ (1−p_eq)，于是 Δμ(bg)/Δμ(bg_min) ≈ (1−p_eq(bg))/(1−p_eq(bg_min))。
+   实测比这条无参数曲线掉得更快（N=1 在 bg=10.25 处实测 0.397 vs 模型 0.626），
+   多出来的部分来自极值竞争（高 bg 时无信号基线已被 15 bin 取极大值抬高）。
+2. **peak 标准差加信号后变大，不是变小。** σ(b)/σ(0) 从低 bg 的 2.8–5.3 降到高 bg 的 1.04–1.64，
+   但**始终 ≥ 1**。（**更正**：我在写模块 15 的说明时先猜"信号会把 peak 钉在信号 bin 上、
+   σ 反而更小"，MC 结果否掉了这个猜想，已按实测改写。）
+3. **分布形状确实在变。** 纯噪声 peak 右偏（偏度 0.2–1.0，极值分布特征），
+   加信号后偏度掉到 **≈0.05**、接近对称的二项形状。
+   所以只报"均值 + std"不足以描述 peak，必须看完整分布。
+
+### 踩过的坑
+
+- **PowerShell 不支持 heredoc（`<<EOF`）也不支持 `&&`/`&` 串命令**。
+  写多行 git commit message 要先 `Write` 到临时文件再 `git commit -F`；
+  串命令用 `cmd /c "a && b"` 或 PowerShell 的 `;`。
+- **nbformat 4.5 要求每个 cell 有唯一 `id`**。新造 cell 时忘了加 `id`，
+  Jupyter 打开会报 schema 警告。`upgrade_pod_esti_v20_from_v11.py` 里用 `_next_id()` 统一发号。
+- **`build_pod_core_v20.py` 的 FOOTER 一开始只试主缓存名**，
+  导致 `pod_esti_v20_core.py` 里 `NOISE_RES={}`、`THRESH={}`，
+  多进程脚本会**从零重算 144 档 1e6 MC**。已改成按
+  `[CACHE_NOISE, *CACHE_NOISE_FALLBACK, CACHE_NOISE_CKPT]` 顺序找，命中旧版后同步写回。
+  **新版换缓存名时，别忘了内核里的加载顺序也要同步改。**
+- **notebook cell 之间有隐式依赖**：模块 13/14 用到模块 11 定义的 `_COLORS_N`，
+  模块 14 用到 cell 28 的 `equiv_distance`，模块 15 用到 cell 35 的 `SIG_M9`。
+  Run All 顺序没问题，但单独跑某个 cell 会 NameError。`check_v20_modules.py`
+  的默认 cell 列表已经按依赖排好序。
 
 ## v11 附 7 —— 2026-08-09　宏像元对比图改横轴为 bg + `noise27` 更名
 

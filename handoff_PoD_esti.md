@@ -358,6 +358,12 @@ python check_v20_modules.py --all
 19. **不要凭直觉断言"信号会把 peak 钉死、σ 变小"。** 我在写模块 15 说明时先这么猜过，
     8,000 MC × 1296 档的实测否掉了它：σ(b)/σ(0) **始终 ≥ 1**。信号自己带来的二项涨落
     叠在噪声之上，并没有减小 peak 的离散度。
+19b. **v11 的模块 9.3 会把「跑了一半的 `.partial.npz`」当成完整缓存收下**。
+    `_try_load_sig_m9` 只校验 `n_mc` / `grid_key` / `boosts`，**没校验完成度**，
+    于是断点续跑留下的 `pod_esti_v11_cache_signal.partial.npz`（实测只有 72/432 档有数据）
+    会被静默采纳，剩下的档位全是零。已删掉那个残留文件；
+    **v20 的 `_try_load_sig_m9` 已加 `done_<N>` 完成度校验**，不会再犯。
+    教训：缓存的校验键里必须包含「完成度」，不能只包含「参数是否匹配」。
 20. **notebook cell 之间有隐式依赖**：模块 13/14 用模块 11 定义的 `_COLORS_N`，
     模块 14 用 cell 28 的 `equiv_distance`，模块 15 用 cell 35 的 `SIG_M9`。
     Run All 顺序没问题，但单独跑某个 cell 会 NameError。

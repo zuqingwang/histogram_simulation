@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""PoD_esti v10 计算内核（由 build_pod_core_v10.py 自动生成，请勿手改）。
+"""PoD_esti v11 计算内核（由 build_pod_core_v11.py 自动生成，请勿手改）。
 
-用途：供 run_pod_v10_noise_scan.py / 后续 PoD 多进程脚本 import。
+用途：供 run_pod_v11_noise_scan.py / run_pod_v11_pod_scan.py import。
 import 时不自动跑噪声 MC（噪声扫描请用多进程脚本）。
 环境变量 POD_CORE_QUIET=1 时静音 print。
 """
@@ -19,7 +19,7 @@ if _QUIET:
     _builtins.print = lambda *a, **k: None
 
 
-# ===== 源自 PoD_esti_v10.ipynb cell 2 =====
+# ===== 源自 PoD_esti_v11.ipynb cell 2 =====
 import json, os, time
 # ★ 必须在 import numpy/scipy 之前：多线程自管并行时禁止 BLAS 再开线程
 for _k in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
@@ -95,15 +95,16 @@ DT_FINE    = 200e-12     # 逐光子引擎的细网格步长 [s]（同 v45）
 # ---- 宏像元（macro pixel）----
 MACRO_BX   = 9           # 沿短边 x 的 SPAD 数
 MACRO_BY   = 3           # 沿长边 y 的 SPAD 数   ⇒ 27 个 SPAD
-N_SHOTS_MAX  = 4                 # ★ v10：一次仿真发满 4 发
-N_SHOTS_LIST = [1, 2, 4]         # ★ v10：由 hist_i 前缀和派生
+N_SHOTS_MAX  = 4                 # ★ v11：一次最多仿 4 发（按 N 分别扫 bg）
+N_SHOTS_LIST = [1, 2, 4]         # ★ v11：N∈{1,2,4}；同 bg 网格对比
 
 # ---- ★ v02：第 1、2 步的噪声档，改为【目标 noise 线性等间距】 ----
 #   键 = N_shots；值 = 目标底噪（宏像元每 1 ns bin 的平均计数）。
 #   两条网格都覆盖到各自二值硬上限（27 / 108）的约 20%，并都包含 noise = 9 与 10。
-# ★ v10：按单次 noise（环境标准）扫；各 N 的目标 bg≈N·noise（键仍用 bg 刻度，兼容模块 5–8）
-NOISE_GRID_AMB = np.round(np.arange(0.25, 12.0 + 1e-9, 0.25), 4)  # 48 档
-NOISE_GRID = {n: np.round(NOISE_GRID_AMB * n, 4) for n in N_SHOTS_LIST}
+# ★ v11：各 N 目标 bg 网格统一（步长 0.25）；仿真时 noise_amb = bg / N
+BG_GRID = np.round(np.arange(0.25, 12.0 + 1e-9, 0.25), 4)  # 48 档，统一 bg
+NOISE_GRID = {n: BG_GRID.copy() for n in N_SHOTS_LIST}       # 目标 = bg（兼容旧键 noise_target）
+NOISE_GRID_AMB = BG_GRID.copy()  # 兼容旧变量名；v11 中表示统一 bg 网格，不再表示「单次 ambient 扫轴」
 # ---- ★ v05：噪点率 / FAR 目标（ppm + 百分数）----
 # tag 用于字典键与文件字段；label 用于图例显示
 FAR_SPECS = [
@@ -150,23 +151,23 @@ POD_WARM_NS= 60.0        # PoD 子窗的暖机长度 [ns]（≫ 3τ_RC + T_OVER 
 
 # ---- ★ v05 缓存：主文件 + 兼容读取旧版 + 增量检查点 ----
 USE_CACHE = True
-CACHE_NOISE = "pod_esti_v10_cache_noise.npz"
-CACHE_POD   = "pod_esti_v10_cache_pod.npz"
-CACHE_SIG   = "pod_esti_v10_cache_signal.npz"  # 模块 9 固定信号
-CACHE_NOISE_FALLBACK = []  # ★ v10 禁止复用旧缓存，全量重算
+CACHE_NOISE = "pod_esti_v11_cache_noise.npz"
+CACHE_POD   = "pod_esti_v11_cache_pod.npz"
+CACHE_SIG   = "pod_esti_v11_cache_signal.npz"  # 模块 9 固定信号
+CACHE_NOISE_FALLBACK = []  # ★ v11 禁止复用 v10/旧缓存，全量重算
 CACHE_POD_FALLBACK   = []
-CACHE_NOISE_CKPT = "pod_esti_v10_cache_noise.partial.npz"
-CACHE_POD_CKPT   = "pod_esti_v10_cache_pod.partial.npz"
-CACHE_SIG_CKPT   = "pod_esti_v10_cache_signal.partial.npz"
+CACHE_NOISE_CKPT = "pod_esti_v11_cache_noise.partial.npz"
+CACHE_POD_CKPT   = "pod_esti_v11_cache_pod.partial.npz"
+CACHE_SIG_CKPT   = "pod_esti_v11_cache_signal.partial.npz"
 
 print(f"单光子能量 E_photon = {E_PHOTON:.3e} J")
 print(f"目标 D = {D_TARGET} m → ToF = {2*D_TARGET/C_LIGHT*1e9:.2f} ns")
 print(f"采集窗 {WIN_LO_NS:.0f}–{WIN_HI_NS:.0f} ns，bin 宽 {PARAMS['hist']['bin_width']*1e9:.0f} ns，"
       f"掐头去尾各 {TRIM_NS:.0f} ns")
 print(f"宏像元 {MACRO_BX}×{MACRO_BY} = {MACRO_BX*MACRO_BY} 个 SPAD；N_SHOTS_MAX={N_SHOTS_MAX}；分析 N={N_SHOTS_LIST}")
-print(f"  ★ v10 单次 noise 网格：{NOISE_GRID_AMB[0]:g}→{NOISE_GRID_AMB[-1]:g}，共 {NOISE_GRID_AMB.size} 档；各 N 目标 bg≈N·noise")
+print(f"  ★ v11 统一 BG_GRID：{BG_GRID[0]:g}→{BG_GRID[-1]:g}，共 {BG_GRID.size} 档，步长 0.25；noise_amb=bg/N")
 for _ns, _g in NOISE_GRID.items():
-    print(f"  ★ N_shots={_ns} 的噪声网格：noise = {_g[0]:g} → {_g[-1]:g}，"
+    print(f"  ★ N_shots={_ns} 目标 bg = {_g[0]:g} → {_g[-1]:g}（noise_amb=bg/{_ns}），"
           f"步长 {_g[1]-_g[0]:g}，共 {_g.size} 档（线性等间距）")
 print(f"  ★ FAR 目标：{[FAR_LABEL[f] for f in TARGET_FARS]}，每档 {N_MC_NOISE:,} 次 MC")
 print(f"  ★ 并行：N_WORKERS={N_WORKERS}，噪声分块={MC_CHUNK:,}；PoD 外层×内层={POD_BIN_WORKERS}×{POD_WORKERS}，POD_MC_CHUNK={POD_MC_CHUNK}；每 {CHECKPOINT_EVERY} 档增量落盘")
@@ -191,7 +192,7 @@ def _run_cmd_stream(cmd):
     for line in p.stdout:
         print(line, end="", flush=True)
     return int(p.wait())
-# ===== 源自 PoD_esti_v10.ipynb cell 4 =====
+# ===== 源自 PoD_esti_v11.ipynb cell 4 =====
 # ---- 激光脉冲 ----
 def _pulse_norm(p=PARAMS):
     tr, tf_ = p["laser"]["tau_r"], p["laser"]["tau_f"]
@@ -331,7 +332,7 @@ print(f"环境光基准 E_lambda = {PARAMS['ambient']['E_lambda']} W/m²/nm（�
       f"单像元 r_amb = {ambient_photon_rate_per_pixel():.3e} ph/s  "
       f"→ 探测率 r_det = r_amb·PDE = {ambient_photon_rate_per_pixel()*PARAMS['spad']['PDE']:.3e} cps")
 
-# ===== 源自 PoD_esti_v10.ipynb cell 6 =====
+# ===== 源自 PoD_esti_v11.ipynb cell 6 =====
 # ---- SPAD 器件参数（从 PARAMS["spad"] 解出全局量，命名沿用 v45） ----
 _sp = PARAMS["spad"]
 PDE        = _sp["PDE"]
@@ -392,7 +393,7 @@ for ns_ in N_SHOTS_LIST:
 print(f"信号峰位 ToF = {T0_SIG_NS:.2f} ns（bin 下标 {int(T0_SIG_NS)}）")
 print(f"环境光基准 r_amb = {R_AMB_BASE:.3e} ph/s，r_det = {R_AMB_BASE*PDE:.3e} cps")
 
-# ===== 源自 PoD_esti_v10.ipynb cell 8 =====
+# ===== 源自 PoD_esti_v11.ipynb cell 8 =====
 def spad_response_g(vov_frac, shape="linear", k=3.0):
     """SPAD 对光子的响应函数 g(vov_frac) ∈ [0,1]；触发概率 = PDE_max·g。
     约束 g(0)=0（Vov=0 完全不响应）、g(1)=1（满 Vov 触发概率 = PDE_max）。"""
@@ -449,7 +450,7 @@ def macro_hist_exact(n_real, f_arr, r_sig_unit, r_amb, tf, centers, rng, boost=1
         h[i] = acc
     return h
 
-# ===== 源自 PoD_esti_v10.ipynb cell 9 =====
+# ===== 源自 PoD_esti_v11.ipynb cell 9 =====
 # ============================================================================
 # 更新过程工具：累积强度 H、生存函数 S、平衡态点亮概率 p_bin、以及 noise -> r_det 反解
 # ============================================================================
@@ -731,7 +732,7 @@ print("  · binary_macro_stepping —— 快速 B，同步时间步进，含信�
 print("  · noise_hists_per_shot / binary_macro_stepping_per_shot —— ★v10 hist_i")
 print("  · hist_add_from_prefix / stats_from_hist_i —— ★v10 前缀和")
 print("  · p_bin_equilibrium / r_det_for_noise / e_lambda_for_r_det —— noise 与环境光的精确互换")
-# ===== 源自 PoD_esti_v10.ipynb cell 17 =====
+# ===== 源自 PoD_esti_v11.ipynb cell 17 =====
 def _noise_chunk_stats(m, n_tr, r_det, inv_tab, seed):
     """单个纯噪声分块；返回可直接归并的充分统计量。"""
     h = noise_macro_hist_fast(
@@ -844,14 +845,14 @@ def run_noise_scan(n_shots, noise_grid, n_mc, chunk, seed0=2000, verbose_every=5
 
 
 
-def run_noise_scan_v10_amb(noise_amb_grid, n_mc, chunk, seed0=2000, verbose_every=5,
-                           res_all=None, on_progress=None):
-    """★ v10：按单次 noise 扫；每档仿 N_SHOTS_MAX 发 hist_i，前缀和得到 N=1/2/4。
 
-    返回 {N: res_dict}，res_dict 字段兼容原 run_noise_scan（noise_mc=实测 bg）。
-    额外字段：noise_amb_mc（实测单次 noise）、noise_amb_target。
+def run_noise_scan_v11_bg(bg_grid, n_mc, chunk, seed0=2000, verbose_every=1,
+                          res_all=None, on_progress=None):
+    """★ v11：按统一 bg 网格扫；对每个 N 单独设 noise_amb=bg/N。
+
+    返回 {N: res_dict}；res_dict 字段兼容旧作图（noise_mc=实测 bg，noise_target=目标 bg）。
     """
-    grid = np.asarray(noise_amb_grid, float)
+    grid = np.asarray(bg_grid, float)
     ng = len(grid)
     if res_all is None:
         res_all = {}
@@ -860,8 +861,8 @@ def run_noise_scan_v10_amb(noise_amb_grid, n_mc, chunk, seed0=2000, verbose_ever
         if n not in res_all:
             res_all[n] = {
                 "n_shots": n, "n_tr": n_tr,
-                "noise_target": np.round(grid * n, 4),  # 兼容旧键：目标 bg≈N·noise
-                "noise_amb_target": grid.copy(),
+                "noise_target": grid.copy(),                 # 目标 bg
+                "noise_amb_target": np.round(grid / n, 6),  # 对应单次 noise
                 "r_det": np.zeros(ng), "e_lambda": np.zeros(ng), "p_eq": np.zeros(ng),
                 "noise_mc": np.zeros(ng), "noise_std": np.zeros(ng),  # = bg
                 "noise_amb_mc": np.zeros(ng), "noise_amb_std": np.zeros(ng),
@@ -873,73 +874,77 @@ def run_noise_scan_v10_amb(noise_amb_grid, n_mc, chunk, seed0=2000, verbose_ever
                 [int(c.sum()) > 0 for c in res_all[n]["peak_cnt"]], dtype=bool)
 
     t_start = time.time()
-    for k, nt_amb in enumerate(grid):
-        if all(bool(res_all[n]["done"][k]) for n in N_SHOTS_LIST):
-            continue
-        # r_det 按单次 27 SPAD 的 noise 反解
+    jobs = [(n, k) for n in N_SHOTS_LIST for k in range(ng)
+            if not bool(res_all[n]["done"][k])]
+    n_jobs = len(jobs)
+    print(f"v11 噪声扫描：{ng} bg × N={list(N_SHOTS_LIST)} = {ng*len(N_SHOTS_LIST)} 档，"
+          f"待算 {n_jobs}，每档 {n_mc:,} MC", flush=True)
+    for ji, (n, k) in enumerate(jobs):
+        bg_t = float(grid[k])
+        nt_amb = bg_t / n
         r_det = float(r_det_for_noise(float(nt_amb), N_PIX_MACRO))
         e_lam = float(e_lambda_for_r_det(r_det))
         p_eq = float(p_bin_equilibrium(r_det)[0])
         inv_tab = build_inv_table(r_det)
 
-        acc = {n: dict(noise_sum=0.0, noise_sumsq=0.0, bg_sum=0.0, bg_sumsq=0.0,
-                       peak_cnt=np.zeros(N_PIX_MACRO * n + 2, dtype=np.int64), nn=0)
-               for n in N_SHOTS_LIST}
+        acc = dict(noise_sum=0.0, noise_sumsq=0.0, bg_sum=0.0, bg_sumsq=0.0,
+                   peak_cnt=np.zeros(N_PIX_MACRO * n + 2, dtype=np.int64), nn=0)
         done_m, part = 0, 0
         while done_m < n_mc:
             m = min(chunk, n_mc - done_m)
-            seeds = [seed0 + 10007 * k + 104729 * part + 17 * t
+            seeds = [seed0 + 10007 * (n * 1000 + k) + 104729 * part + 17 * t
                      for t in range(NOISE_WORKERS)]
             ms = [m // NOISE_WORKERS + (1 if t < m % NOISE_WORKERS else 0)
                   for t in range(NOISE_WORKERS)]
-            def _one(args):
+
+            def _one(args, _n=n, _rd=r_det, _it=inv_tab):
                 mm, sd = args
                 if mm <= 0:
                     return None
                 rng = np.random.default_rng(sd)
-                hi = noise_hists_per_shot(mm, N_SHOTS_MAX, r_det, rng, inv_tab=inv_tab)
-                return stats_from_hist_i(hi)
+                hi = noise_hists_per_shot(mm, _n, _rd, rng, inv_tab=_it)
+                return stats_from_hist_i(hi, n_shots_list=[_n])
+
             with ThreadPoolExecutor(max_workers=NOISE_WORKERS) as pool:
                 parts = list(pool.map(_one, zip(ms, seeds)))
             for st in parts:
                 if st is None:
                     continue
-                for n in N_SHOTS_LIST:
-                    a, b = acc[n], st[n]
-                    a["noise_sum"] += b["noise_sum"]; a["noise_sumsq"] += b["noise_sumsq"]
-                    a["bg_sum"] += b["bg_sum"]; a["bg_sumsq"] += b["bg_sumsq"]
-                    a["peak_cnt"] += b["peak_cnt"]; a["nn"] += b["n"]
+                b = st[n]
+                acc["noise_sum"] += b["noise_sum"]; acc["noise_sumsq"] += b["noise_sumsq"]
+                acc["bg_sum"] += b["bg_sum"]; acc["bg_sumsq"] += b["bg_sumsq"]
+                acc["peak_cnt"] += b["peak_cnt"]; acc["nn"] += b["n"]
             done_m += m; part += 1
 
-        for n in N_SHOTS_LIST:
-            R = res_all[n]; a = acc[n]; nn = max(a["nn"], 1)
-            R["r_det"][k] = r_det; R["e_lambda"][k] = e_lam; R["p_eq"][k] = p_eq
-            R["noise_amb_mc"][k] = a["noise_sum"] / nn
-            R["noise_amb_std"][k] = float(np.sqrt(max(
-                a["noise_sumsq"]/nn - (a["noise_sum"]/nn)**2, 0.0)))
-            R["noise_mc"][k] = a["bg_sum"] / nn          # ★ 兼容旧图：noise_mc = bg
-            R["noise_std"][k] = float(np.sqrt(max(
-                a["bg_sumsq"]/nn - (a["bg_sum"]/nn)**2, 0.0)))
-            R["peak_cnt"][k] = a["peak_cnt"]
-            R["done"][k] = True
+        R = res_all[n]; nn = max(acc["nn"], 1)
+        R["r_det"][k] = r_det; R["e_lambda"][k] = e_lam; R["p_eq"][k] = p_eq
+        R["noise_amb_mc"][k] = acc["noise_sum"] / nn
+        R["noise_amb_std"][k] = float(np.sqrt(max(
+            acc["noise_sumsq"]/nn - (acc["noise_sum"]/nn)**2, 0.0)))
+        R["noise_mc"][k] = acc["bg_sum"] / nn
+        R["noise_std"][k] = float(np.sqrt(max(
+            acc["bg_sumsq"]/nn - (acc["bg_sum"]/nn)**2, 0.0)))
+        R["peak_cnt"][k] = acc["peak_cnt"]
+        R["done"][k] = True
         if on_progress is not None:
-            on_progress(res_all, k)
-        if (k % verbose_every) == 0 or k == ng - 1:
+            on_progress(res_all, n, k)
+        if (ji % verbose_every) == 0 or ji == n_jobs - 1:
             el = time.time() - t_start
-            eta = el / (k + 1) * (ng - k - 1)
-            pk4 = peak_stats_from_cnt(res_all[4]["peak_cnt"][k])
-            print(f"  [amb {k+1:>3d}/{ng}] noise={nt_amb:.2f} → "
-                  f"bg(N=1/2/4)="
-                  f"{res_all[1]['noise_mc'][k]:.3f}/"
-                  f"{res_all[2]['noise_mc'][k]:.3f}/"
-                  f"{res_all[4]['noise_mc'][k]:.3f}  "
-                  f"peakμ(N=4)={pk4['mean']:.2f}  [{el:.0f}s, 剩约{eta:.0f}s]")
+            eta = el / (ji + 1) * (n_jobs - ji - 1)
+            pk = peak_stats_from_cnt(R["peak_cnt"][k])
+            print(f"  [{ji+1}/{n_jobs}] N={n} bg={bg_t:.2f}（amb={nt_amb:.3f}）→ "
+                  f"bg_mc={R['noise_mc'][k]:.3f} peakμ={pk['mean']:.2f}  "
+                  f"已用 {el/60:.1f} min，预计剩余 {eta/60:.1f} min", flush=True)
     return res_all
+
+
+# 兼容旧名
+run_noise_scan_v11_amb = run_noise_scan_v11_bg
 
 
 # ---- 估算总耗时并开跑（主缓存 + fallback + 增量检查点）----
 
-# ===== 源自 PoD_esti_v10.ipynb cell 22 =====
+# ===== 源自 PoD_esti_v11.ipynb cell 22 =====
 def far_threshold_from_cnt(cnt, target_far):
     """由 peak 的 bincount 求满足 P(peak ≥ T) < target_far 的最小整数 T。
 
@@ -965,7 +970,7 @@ def far_threshold_binom_indep(n_tr, p_bin, n_bins, target_far):
         T += 1
     return T
 
-# ===== 源自 PoD_esti_v10.ipynb cell 25 =====
+# ===== 源自 PoD_esti_v11.ipynb cell 25 =====
 # ---- PoD 专用子窗（只计算信号附近，前方保留暖机）----
 POD_T_LO = T0_SIG - POD_WARM_NS * 1e-9
 POD_T_HI = T0_SIG + SIG_POST_NS * 1e-9
@@ -977,20 +982,20 @@ R_SIG_UNIT_POD = signal_photon_rate_fine(ECHO0, 1.0, TF_POD)
 _NPH_BASE = np.trapezoid(R_SIG_UNIT_POD, TF_POD) * F_VALS.sum()
 
 print(f"PoD 子窗：{POD_T_LO*1e9:.1f}–{POD_T_HI*1e9:.1f} ns，{TF_POD.size} 个细网格步")
-print(f"每种 N_shots 对自己的完整 NOISE_GRID 求解："
-      f"{[len(NOISE_GRID[n]) for n in N_SHOTS_LIST]} 档，noise 步长 0.25")
+print(f"每种 N_shots 对统一 BG_GRID 求解："
+      f"{[len(NOISE_GRID[n]) for n in N_SHOTS_LIST]} 档，bg 步长 0.25；noise_amb=bg/N")
 print(f"并行：外层 POD_BIN_WORKERS={POD_BIN_WORKERS} × 内层 POD_WORKERS={POD_WORKERS}；"
       f"MC 分块 POD_MC_CHUNK={POD_MC_CHUNK}；临界验证 {N_MC_POD_VERIFY:,} 次/点")
 
 
 def _peaks_chunk(boost, n_shots, r_amb, n_real, seed):
-    """★ v10：仿 N_SHOTS_MAX 发 hist_i，再取前 n_shots 前缀和的 peak。"""
+    """★ v11：按当前 N 仿 n_shots 发（r_amb 已对应 noise=bg/N）。"""
     rng = np.random.default_rng(seed)
     hist_i = binary_macro_stepping_per_shot(
-        n_real, F_VALS, N_SHOTS_MAX, R_SIG_UNIT_POD, TF_POD, r_amb, CENTERS_SIG,
+        n_real, F_VALS, n_shots, R_SIG_UNIT_POD, TF_POD, r_amb, CENTERS_SIG,
         rng, boost=boost,
     )
-    return hist_add_from_prefix(hist_i, n_shots).max(axis=1)
+    return hist_i.sum(axis=1).max(axis=1)
 
 
 def sig_peaks(boost, n_shots, r_amb, n_real, seed):
@@ -1209,7 +1214,7 @@ def solve_pod_noise(n_shots, k, seed0):
     }
 
 
-# ---- 对完整 0.25-noise 网格求解；主缓存 + fallback + 增量检查点 ----
+# ---- 对完整 0.25-bg 网格求解；主缓存 + fallback + 增量检查点 ----
 _pod_grid_key = np.concatenate([NOISE_GRID[n] for n in N_SHOTS_LIST])
 
 
@@ -1280,12 +1285,14 @@ def _noise_cache_complete(res_all):
                 return False
         elif not all(int(c.sum()) > 0 for c in r["peak_cnt"]):
             return False
-        if len(r["noise_target"]) != len(NOISE_GRID_AMB):
+        if len(r["noise_target"]) != len(BG_GRID):
+            return False
+        if not np.allclose(r["noise_target"], BG_GRID, atol=1e-6):
             return False
     return True
 
 
-_grid_key_noise = np.asarray(NOISE_GRID_AMB, float)
+_grid_key_noise = np.asarray(BG_GRID, float)
 NOISE_RES = _try_load_noise_cache(CACHE_NOISE, _grid_key_noise)
 if NOISE_RES is None:
     NOISE_RES = {}

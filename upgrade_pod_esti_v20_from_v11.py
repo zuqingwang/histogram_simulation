@@ -78,13 +78,30 @@ M11_MD = r"""
 | ② | **peak 均值** | 统计窗内最大 bin 的均值 |
 | ③ | **peak 标准差** | 统计窗内最大 bin 跨 MC 条数的标准差 |
 
-两条解析对照线：
+### ① 单条 hist 内 std 的解析对照（两条线）
 
 * **纯泊松**：$\sigma=\sqrt{\mathrm{bg}}$
 * **二值饱和（Binomial）**：每个 bin 是 $\mathrm{Bin}(n_{tr},p_{eq})$，$n_{tr}=27N$，$p_{eq}=\mathrm{bg}/n_{tr}$，故
-  $$\sigma=\sqrt{n_{tr}\,p_{eq}(1-p_{eq})}=\sqrt{\mathrm{bg}\left(1-\frac{\mathrm{bg}}{27N}\right)}$$
+  $$\sigma_{bin}=\sqrt{n_{tr}\,p_{eq}(1-p_{eq})}=\sqrt{\mathrm{bg}\left(1-\frac{\mathrm{bg}}{27N}\right)}$$
   这就是 **Fano 因子 $F=1-\mathrm{bg}/(27N)<1$** 的来源：SPAD 是 1 bit 的，一个 bin 最多点亮一次，
-  所以噪声比泊松**更小**（亚泊松）。$N$ 越大 $n_{tr}$ 越大，压缩越弱，$\sigma$ 越接近 $\sqrt{\mathrm{bg}}$。
+  所以噪声比泊松**更小**（亚泊松）。$N$ 越大 $n_{tr}$ 越大，压缩越弱，$\sigma_{bin}$ 越接近 $\sqrt{\mathrm{bg}}$。
+
+### ③ peak 标准差的解析对照（Gumbel 极值公式）
+
+peak 是统计窗内约 $M_{eff}$ 个近高斯 bin（每个 $\approx\mathcal N(\mathrm{bg},\sigma_{bin}^2)$）取极大值。
+高斯极大值服从 **Gumbel** 极限，标准差有闭式：
+
+$$
+\sigma_{peak}\;\approx\;\frac{\pi}{\sqrt6}\,\frac{\sigma_{bin}}{z_M},
+\qquad z_M=\sqrt{2\ln M_{eff}}\;\approx\;\frac{\mu_{peak}-\mathrm{bg}}{\sigma_{bin}}
+$$
+
+这里用**实测的** $\mu_{peak}$ 反推 $z_M$（峰位在均值上方几个 $\sigma_{bin}$），**不含拟合参数**，
+所以它是一个真正的检验：「已知峰位，峰宽是不是极值理论给的宽度」。
+它把三张图串起来 —— ①给 $\sigma_{bin}$、②给 $\mu_{peak}$、③预测 $\sigma_{peak}$。
+
+> **适用范围**：Gumbel 是 $M\to\infty$ 的渐近结果。大 bg（$\mathrm{bg}\gtrsim6$）计数多、单 bin 近高斯，
+> 解析与实测贴合到几个百分点；小 bg 时计数少、分布离散且强右偏，解析会系统性偏低，属正常。
 
 数据来自 `scan_hist_std_peak.py`（缓存 `scan_hist_std_peak_cache.npz`，48 bg × N∈{1,2,4} × 100,000 MC）。
 横轴给两个版本：**vs bg**（同底噪比 N）与 **vs noise**（同单发底噪比 N）。
@@ -164,14 +181,22 @@ def _draw_m11(xmode, fname, xlabel, suptitle):
     ax[1].set_title("② peak 均值（点线 = 实测 bg，作参照）", fontsize=11)
     ax[1].legend(fontsize=8); ax[1].grid(alpha=0.3)
 
-    # ③ peak 标准差
+    # ③ peak 标准差：实测 vs Gumbel 极值解析
+    #    peak = max of ~M_eff 个近高斯 bin，Gumbel 极限下
+    #    σ_peak ≈ (π/√6)·σ_bin/z_M，其中 z_M=√(2 ln M_eff)≈(peakμ−bg)/σ_bin。
+    #    用实测 peakμ 反出 z_M（不含拟合参数），是「给定峰位、峰宽是否为极值宽度」的检验。
     for n in N_SHOTS_LIST:
         x = _bgg if xmode == "bg" else _bgg / n
         ax[2].plot(x, HSP[n]["peak_std"], "-", color=_COLORS_N[n], lw=2.0,
-                   label=f"N={n}")
+                   label=f"N={n}　MC 实测")
+        sig_bin = np.sqrt(_bgg * (1.0 - _bgg / (N_PIX_MACRO * n)))
+        z_M = (HSP[n]["peak_mean"] - _bgg) / np.maximum(sig_bin, 1e-9)
+        sig_evt = (np.pi / np.sqrt(6.0)) * sig_bin / np.maximum(z_M, 1e-9)
+        ax[2].plot(x, sig_evt, "--", color=_COLORS_N[n], lw=1.2, alpha=0.85,
+                   label=f"N={n}　Gumbel 解析")
     ax[2].set_xlabel(xlabel); ax[2].set_ylabel("peak 标准差 [计数/bin]")
-    ax[2].set_title("③ peak 标准差（跨 MC 条数）", fontsize=11)
-    ax[2].legend(fontsize=8); ax[2].grid(alpha=0.3)
+    ax[2].set_title("③ peak 标准差：实测 vs Gumbel 极值解析", fontsize=11)
+    ax[2].legend(fontsize=7.0, ncol=2); ax[2].grid(alpha=0.3)
 
     fig.suptitle(suptitle, fontsize=12.5)
     fig.tight_layout(rect=[0, 0, 1, 0.93])
@@ -184,35 +209,43 @@ _draw_m11("bg", "pod_v20_m11_vs_bg.png", "bg（hist_add 统计窗每 bin 均值�
 _draw_m11("noise", "pod_v20_m11_vs_noise.png", "noise（单发 hist_i 统计窗均值）",
           f"模块 11　三个统计量 vs noise —— 同单发底噪比 N（bg=N·noise，每档 {N_MC_HSP:,} MC）")
 
-print("=" * 104)
+print("=" * 118)
+print("histσ=单条 hist 内 std；解析σ=√(bg(1−bg/27N))；peakσ=实测 peak std；σ_EVT=Gumbel 极值解析")
 print(f"{'bg':>6} | " + " | ".join(
-    f"N={n}: histσ  解析σ  peakμ  peakσ  peakμ/bg" for n in N_SHOTS_LIST))
+    f"N={n}: histσ  解析σ  peakμ  peakσ  σ_EVT" for n in N_SHOTS_LIST))
 for k in range(0, len(_bgg), 6):
     cells = []
     for n in N_SHOTS_LIST:
         bgv = _bgg[k]
         ana = np.sqrt(bgv * (1.0 - bgv / (N_PIX_MACRO * n)))
+        z_M = (HSP[n]['peak_mean'][k] - bgv) / max(ana, 1e-9)
+        s_evt = (np.pi / np.sqrt(6.0)) * ana / max(z_M, 1e-9)
         cells.append(f"{HSP[n]['hist_std'][k]:6.3f} {ana:6.3f} "
                      f"{HSP[n]['peak_mean'][k]:6.2f} {HSP[n]['peak_std'][k]:6.3f} "
-                     f"{HSP[n]['peak_mean'][k]/max(bgv,1e-9):8.2f}")
+                     f"{s_evt:6.3f}")
     print(f"{_bgg[k]:6.2f} | " + " | ".join(cells))
 
 print("\n【模块 11 读图要点】")
 print("  ① 实测 histσ 应贴合 √(bg(1−bg/27N))，明显低于纯泊松 √bg —— 这是 1 bit SPAD 的亚泊松压缩；")
 print("     N 越大 n_tr=27N 越大，压缩越弱，三条线在小 bg 处几乎重合、大 bg 处分开。")
 print("  ② peak 均值远高于 bg（152 个 bin 取极大值），且 peak−bg 随 bg 增长后趋于平缓。")
-print("  ③ peak 标准差随 bg 先升后平 —— 二项方差在 p_eq→0.5 附近压平。")
+print("  ③ peak 标准差对比 Gumbel 极值解析 σ_EVT=(π/√6)·σ_bin/z_M（z_M=(peakμ−bg)/σ_bin）：")
+print("     大 bg（bg≳6）两者贴合到几个百分点；小 bg 时 EVT 偏低，因为计数少、分布离散且强右偏，")
+print("     还没进入极值定理成立的渐近区。这条曲线把 ①（σ_bin）②（peakμ）③（peakσ）三者串起来。")
 '''
 
 M12_MD = r"""
-## 模块 12 — ★ v20：连续（实数）阈值曲线，折线不再是阶梯
+## 模块 12 — ★ v20：阈值曲线用折线（点与点直线相连），并给连续阈值
 
-### 为什么 v11 的阈值曲线是阶梯
+### 需求澄清
 
-阈值 $T$ 是**整数计数**（硬件只能比较整数），所以
-`far_threshold_from_cnt` 返回的是"满足 $P(\mathrm{peak}\ge T)<\mathrm{FAR}$ 的最小整数 $T$"。
-bg 连续变化时，这个整数一格一格往上跳 → 画出来必然是阶梯。
-阶梯掩盖了曲线真实的形状，也让"两个 N 的阈值差多少"被量化噪声污染。
+"不要画阶梯"指的是**画法**：把每个 bg 档算出的阈值当成一个数据点，
+**点与点之间用直线连成折线**，而不是用阶梯函数（`step`，带竖直立边）去连。
+本模块图 A 的实线+点就是这个折线。模块 6 的 noise–threshold 曲线本来就是折线；
+这里补一张以 bg 为横轴、6 条 FAR 都画全的折线版，并额外叠一条更平滑的连续阈值。
+
+> 注意：阈值本身仍是**整数**（硬件只能比较整数计数），折线只是把这些整数点连起来看趋势。
+> 下面的"连续阈值 $T_c$"是另一件事 —— 它把整数量化也抹掉，方便比较和拟合。
 
 ### 连续阈值的定义
 
@@ -285,7 +318,8 @@ for n in N_SHOTS_LIST:
             _nan_report.append(f"N={n} {FAR_LABEL[far]}: {bad}/{len(BG_GRID)} 档超出 MC 分辨")
 print("连续阈值计算完成。" + ("　".join(_nan_report) if _nan_report else "全部档位均在 MC 分辨范围内。"))
 
-# --- 图 A：连续阈值折线（淡色阶梯 = 硬件用的整数阈值）---
+# --- 图 A：阈值 vs bg。整数阈值的采样点用【直线】连成折线（不是阶梯函数）；
+#          连续阈值 Tc 作为更平滑的趋势线叠上去 ---
 fig, axes = plt.subplots(1, len(N_SHOTS_LIST),
                          figsize=(5.7 * len(N_SHOTS_LIST), 5.0), sharex=True)
 _far_cols = plt.cm.viridis(np.linspace(0.05, 0.92, len(TARGET_FARS)))
@@ -293,16 +327,18 @@ for a, n in zip(np.atleast_1d(axes), N_SHOTS_LIST):
     bg = THRESH_C[n]["bg"]
     for far, c in zip(TARGET_FARS, _far_cols):
         tag = FAR_TAG[far]
-        a.step(bg, THRESH[n]["T" + tag], where="post", color=c, lw=0.9, alpha=0.32)
-        a.plot(bg, THRESH_C[n]["Tc" + tag], "-", color=c, lw=2.0,
-               label=f"{FAR_LABEL[far]}")
+        # 硬件用的整数阈值：每个 bg 档一个点，点与点之间用直线连（折线）
+        a.plot(bg, THRESH[n]["T" + tag], "-", marker=".", ms=3.5, color=c,
+               lw=1.5, label=f"{FAR_LABEL[far]}")
+        # 连续（实数）阈值：更平滑的趋势线，虚线叠加
+        a.plot(bg, THRESH_C[n]["Tc" + tag], "--", color=c, lw=1.0, alpha=0.7)
     a.plot(bg, bg, ":", color="0.45", lw=1.3, label="参考 T=bg")
     a.axhline(NOISE_RES[n]["n_tr"], color="k", ls="-.", lw=1.1, alpha=0.7,
               label=f"二值硬上限 {NOISE_RES[n]['n_tr']}")
-    a.set_xlabel("bg [计数/bin]"); a.set_ylabel("连续阈值 $T_c$ [计数]")
-    a.set_title(f"N_shots={n}（粗线=连续，淡阶梯=整数）", fontsize=11)
+    a.set_xlabel("bg [计数/bin]"); a.set_ylabel("阈值 T [计数]")
+    a.set_title(f"N_shots={n}（实线+点=整数阈值折线，虚线=连续 $T_c$）", fontsize=10.5)
     a.legend(fontsize=7.6, ncol=2); a.grid(alpha=0.3)
-fig.suptitle("模块 12A　连续阈值 $T_c$ vs bg —— 折线版阈值曲线（6 条 FAR）", fontsize=12.5)
+fig.suptitle("模块 12A　阈值 vs bg —— 采样点用直线相连的折线（6 条 FAR）", fontsize=12.5)
 fig.tight_layout(rect=[0, 0, 1, 0.93])
 fig.savefig("pod_v20_m12_Tc_vs_bg.png", dpi=120, bbox_inches="tight")
 plt.show()

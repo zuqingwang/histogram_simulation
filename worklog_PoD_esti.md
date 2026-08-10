@@ -124,6 +124,36 @@ python check_v20_modules.py --all                     # 无头真跑模块 8–1
 
 # 二、历史记录（只追加，不删改）
 
+## v20 附 1 —— 2026-08-10　按用户澄清修正模块 11/12 画法
+
+用户对上一轮的两处反馈：
+
+1. **"不要画阶梯"= 画法问题，不是量化问题。** 用户澄清：他要的是把每个 bg 档的阈值
+   **点用直线连成折线**，不要用阶梯函数（`step`，带竖直立边）。
+   我上一版在模块 12 图 A 里用 `a.step(..., where="post")` 画整数阈值当淡色底衬，
+   那条恰恰就是他不要的阶梯。**已改**：整数阈值改成 `a.plot(bg, T, "-", marker=".")`
+   —— 采样点用直线相连的折线；连续阈值 $T_c$ 退成细虚线趋势线叠加。
+   模块 12 markdown 顶部加了"需求澄清"段，讲清折线（画法）与连续阈值（去量化）是两件事。
+   注：模块 6 的 noise–threshold 本来就是 `plot` 折线，不受影响。
+2. **peak std 要对比理论解析公式。** 模块 11 图 ③ 原来只有 MC 实测。
+   **已加** Gumbel 极值解析：peak 是约 $M_{eff}$ 个近高斯 bin 的极大值，
+   $$\sigma_{peak}\approx\frac{\pi}{\sqrt6}\frac{\sigma_{bin}}{z_M},\quad
+     z_M=\frac{\mu_{peak}-\mathrm{bg}}{\sigma_{bin}},\quad
+     \sigma_{bin}=\sqrt{\mathrm{bg}(1-\mathrm{bg}/27N)}$$
+   用实测 $\mu_{peak}$ 反推 $z_M$，无拟合参数。它把图 ①（$\sigma_{bin}$）②（$\mu_{peak}$）
+   ③（$\sigma_{peak}$）三者串起来。实测 vs 解析（N=1）：bg=0.25 → 0.662/0.227（EVT 严重偏低），
+   bg=6.25 → 1.294/1.126（差 13%），bg=10.75 → 1.315/1.346（差 2%）。
+   **结论**：大 bg（≳6）贴合到几个百分点；小 bg 计数少、分布离散强右偏，未进入极值渐近区，
+   EVT 系统性偏低——这本身就是有信息的对照。markdown 里写明了适用范围。
+
+改动都在 `upgrade_pod_esti_v20_from_v11.py`（唯一真源），已重新生成 `PoD_esti_v20.ipynb`、
+重导 `pod_esti_v20_core.py`，`check_v20_modules.py --syntax` / 模块 11+12 无头实跑均通过。
+
+**要求 4 的答案在哪**：在**模块 15**（cell 46 markdown + cell 47 code），
+图 `pod_v20_m15_peak_pmf.png`（分布形状）、`pod_v20_m15_shift_test.png`（Δμ 随 bg + 抢占模型）、
+`pod_v20_m15_std_skew.png`（std 与偏度）；结论印在 cell 47 末尾的【模块 15 结论】。
+理论提要另见模块 17 §17.1 与 `theory_peak_bg_multishot.md` 3.4 节。
+
 ## v20 —— 2026-08-09　在 v11 上追加模块 11–17，补齐 4 条要求
 
 **背景**：用户提出 4 条要求，让我先核对 v11 满足到什么程度，缺的补上、已有的不许删，

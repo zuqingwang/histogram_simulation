@@ -344,7 +344,8 @@ fig.savefig("pod_v20_m12_Tc_vs_bg.png", dpi=120, bbox_inches="tight")
 plt.show()
 
 # --- 图 B：把三个 N 叠在同一张图上比（每条 FAR 一个 panel）---
-_FAR_M12 = [0.05, 0.01, 100e-6]
+# 不同 shot 对比只画 1% 与 5%（100 ppm 等其余 FAR 仍在图 A / 模块 13 里）
+_FAR_M12 = [0.05, 0.01]
 fig, axes = plt.subplots(2, len(_FAR_M12), figsize=(5.6 * len(_FAR_M12), 8.4))
 for j, far in enumerate(_FAR_M12):
     tag = FAR_TAG[far]
@@ -669,9 +670,15 @@ M15_MD = r"""
 每个 `(N, bg, boost)` 都有 8,000 条 MC 的**完整直方图**，不只是均值方差）：
 
 1. **分布形状怎么变**：把同一个 `boost` 在不同 bg 下的 peak 概率质量函数（PMF）叠在一起看。
-2. **peak 均值是不是"只是加上 bg"**：定义
-   $$\Delta\mu(b,\mathrm{bg}) = \mu_{peak}(b,\mathrm{bg}) - \mu_{peak}(0,\mathrm{bg})$$
-   如果"加信号 = 在原来的基础上平移"，那么 $\Delta\mu$ 应该**与 bg 无关**（水平线）。
+2. **peak 均值是不是"只是加上 bg"**：这里给两种互补的检验。
+   * **图 15B₀（加法理想线）**：直接画带信号的 peak 均值 $\mu_{peak}(b,\mathrm{bg})$ 随 bg 的曲线，
+     再叠一条**理想加法线**
+     $$\mu_{ideal}(\mathrm{bg}) = \mu_{peak}(b,\mathrm{bg}_{\min}) + (\mathrm{bg}-\mathrm{bg}_{\min})$$
+     它把"最低 bg 档的带信号峰"当成"信号自己的峰"，然后假设 bg 每升 1、峰就升 1（**斜率 = 1**）。
+     若实测贴着这条斜率 1 的虚线，说明 peak 均值确实"只是加上 bg"；偏离即证伪。
+   * **图 15B（信号净增量）**：定义
+     $$\Delta\mu(b,\mathrm{bg}) = \mu_{peak}(b,\mathrm{bg}) - \mu_{peak}(0,\mathrm{bg})$$
+     如果"加信号 = 在原来的基础上平移"，那么 $\Delta\mu$ 应该**与 bg 无关**（水平线）。
 3. **peak 标准差怎么变**：对比 $\sigma_{peak}(b,\mathrm{bg})$ 与 $\sigma_{peak}(0,\mathrm{bg})$。
 
 另外给出**偏度**（三阶中心矩 / $\sigma^3$）随 bg 的变化，用来判断形状是不是真的只是平移。
@@ -708,8 +715,15 @@ bg 高时无信号基线 $\mu(0)$ 本身已被 15 个 bin 取极大值抬高，�
 
 所以对"**peak 的均值是否简单地只是加上 bg**"这个问题，答案是：
 
-> **不是。** 低 bg 时近似成立，但 bg 越高，同样的信号能顶上去的高度越少。
-> 主因是 1 bit SPAD 的"抢占"（环境光先点亮就轮不到信号），次因是极值竞争。
+> **不是，而且比"+bg"还要低。** 两个口径都指向同一结论：
+> 1. **带信号 peak 总值随 bg 的斜率 < 1**（图 15B₀）：实测斜率只有约 **0.79–0.85**，
+>    高 bg 处落在"信号峰 + bg"这条斜率 1 理想线的**下方**（N=1/2/4 在 bg=12 处分别低 1.7 / 2.2 / 2.5 计数）。
+>    因为信号 bin 本来就已经很高、接近饱和，再叠背景对"取最大值"的边际贡献被压缩
+>    （与抢占同源：1 bit SPAD 一个 bin 一发只能亮一次）。
+> 2. **信号净增量 $\Delta\mu=\mu(b)-\mu(0)$ 也随 bg 下降**（图 15B）：$\Delta\mu\propto 1-p_{eq}$（抢占），
+>    实测掉得比抢占模型还快（极值竞争）。
+>
+> 所以 **peak 均值不是干净的"+bg"**：低 bg 时近似成立，偏离随 bg 增大。
 > 而且分布形状从右偏的极值分布变成近似对称的二项分布，
 > **用"均值 + 标准差"两个数已经不足以描述它**，必须看完整分布（图 15A）。
 """
@@ -775,6 +789,33 @@ fig.suptitle("模块 15A　同一信号强度下，peak 分布随 bg 的变化�
              fontsize=12.5)
 fig.tight_layout(rect=[0, 0, 1, 0.94])
 fig.savefig("pod_v20_m15_peak_pmf.png", dpi=120, bbox_inches="tight")
+plt.show()
+
+# --- 图 B0：直接检验「peak 均值 = 信号峰 + bg」这条加法假设（加理想曲线）---
+#   理想加法线：把最低 bg 档带信号的 peak 当成「信号自己的峰」，之后 bg 每升 1，peak 就升 1（斜率=1）。
+#   若实测贴合这条斜率 1 的虚线，说明 peak 均值确实「只是加上 bg」；偏离即说明不是。
+_bg_arr = np.asarray(BG_GRID, float)
+_k_anchor = int(np.argmin(_bg_arr))            # 最低 bg 档作锚点
+fig, axes = plt.subplots(1, len(N_SHOTS_LIST),
+                         figsize=(5.6 * len(N_SHOTS_LIST), 4.8), sharex=True)
+axes = np.atleast_1d(axes)
+for j, n in enumerate(N_SHOTS_LIST):
+    mu_b = M15[n]["mu"][_ib_show]              # 带信号 peak 均值（boost=_BOOST_SHOW）
+    mu_0 = M15[n]["mu"][0]                     # 无信号 peak 均值（参照）
+    ideal = mu_b[_k_anchor] + (_bg_arr - _bg_arr[_k_anchor])   # 信号峰 + bg（斜率 1）
+    axes[j].plot(_bg_arr, mu_b, "-", color=_COLORS_N[n], lw=2.2,
+                 label=f"实测 peak 均值（b={_BOOST_SHOW:g}）")
+    axes[j].plot(_bg_arr, ideal, "k--", lw=1.9,
+                 label="理想：信号峰 + bg（斜率 1）")
+    axes[j].plot(_bg_arr, mu_0, ":", color="0.5", lw=1.5,
+                 label="无信号 peak 均值 μ(0)")
+    axes[j].set_title(f"N={n}", fontsize=11)
+    axes[j].set_xlabel("bg [计数/bin]"); axes[j].set_ylabel("peak 均值 [计数]")
+    axes[j].grid(alpha=0.3); axes[j].legend(fontsize=7.8)
+fig.suptitle("模块 15B0　「peak 均值 = 信号峰 + bg」加法假设的直接检验（实测 vs 斜率 1 理想线）",
+             fontsize=12.5)
+fig.tight_layout(rect=[0, 0, 1, 0.93])
+fig.savefig("pod_v20_m15_add_ideal.png", dpi=120, bbox_inches="tight")
 plt.show()
 
 # --- 图 B：Δμ 是否与 bg 无关（"是不是只是加上 bg"）---
@@ -851,10 +892,27 @@ for n in N_SHOTS_LIST:
               f"{(mb-m0)/max(d0,1e-9):>9.3f}"
               f"{(1-peq[k])/(1-peq[0]):>10.3f}{sb/max(s0,1e-9):>11.3f}")
 
+# 「信号峰 + bg」加法假设的定量残差（图 15B0 的数字版）
+print("=" * 96)
+print(f"加法假设检验（boost={_BOOST_SHOW:g}）：理想线=μ(b,bg_min)+(bg−bg_min)，斜率应为 1")
+print(f"{'N':>3}{'bg_min→bg_max':>16}{'实测Δpeak':>11}{'Δbg':>8}{'实测斜率':>10}"
+      f"{'高bg残差':>11}")
+for n in N_SHOTS_LIST:
+    mu_b = M15[n]["mu"][_ib_show]
+    dbg = _bg_arr[-1] - _bg_arr[_k_anchor]
+    dpk = mu_b[-1] - mu_b[_k_anchor]
+    ideal_hi = mu_b[_k_anchor] + dbg
+    print(f"{n:>3d}{f'{_bg_arr[_k_anchor]:.2f}→{_bg_arr[-1]:.2f}':>16}"
+          f"{dpk:>11.2f}{dbg:>8.2f}{dpk/max(dbg,1e-9):>10.3f}"
+          f"{mu_b[-1]-ideal_hi:>+11.2f}")
+
 print("\n【模块 15 结论】")
-print("  1) peak 均值【不是】简单地加上 bg。Δμ 随 bg 单调下降：同样的信号，bg 越高顶起来的高度越少。")
-print("     主因是 1 bit SPAD 的「抢占」——环境光先点亮就轮不到信号，净增量 ∝ (1−p_eq)；")
-print("     实测比抢占模型掉得更快，多出来的那部分来自极值竞争（高 bg 时无信号基线本身已被抬高）。")
+print("  1) peak 均值【不是】简单地加上 bg（见图 15B0 的斜率 1 理想线）。实测比「+bg」还要低：")
+print("     · 带信号 peak 总值随 bg 的实测斜率只有约 0.79~0.85（<1），高 bg 处落在「信号峰 + bg」")
+print("       理想线【下方】——加背景把信号峰顶上去的高度不足 bg。信号 bin 本来就已经很高、接近饱和，")
+print("       再叠背景对「取最大值」的边际贡献被压缩（与抢占同源：1 bit SPAD 一个 bin 一发只能亮一次）。")
+print("     · 换个口径看【信号净增量】Δμ=μ(b)−μ(0) 也随 bg 单调下降（图 15B），净增量 ∝ (1−p_eq)，")
+print("       实测掉得比抢占模型还快（极值竞争）。两个口径都指向同一结论：不是干净的 +bg。")
 print("  2) peak 标准差加信号后【变大】，不是变小；σ(b)/σ(0) 始终 ≥ 1，只是随 bg 升高趋近 1。")
 print("     信号自己带来的二项涨落叠在噪声之上，并没有把 peak「钉死」。")
 print("  3) 分布形状确实在变：纯噪声 peak 右偏（极值分布），加信号后偏度掉到 ≈0.05、接近对称。")
@@ -1182,6 +1240,23 @@ def main():
         "★ v20：数据由多进程脚本 `run_pod_v20_sig_scan.py` 产出（缓存 `pod_esti_v20_cache_signal.npz`，\n"
         "48 bg × 9 boost × N∈{1,2,4} × 8,000 MC，ProcessPool 20 进程 + 断点续跑）。\n"
         "缓存里存的是**完整 peak 分布**（bincount），模块 15 会用它看分布形状怎么变。")
+
+    # ---------- 4b. 模块 6 阈值图：不同 shot 对比只画 5% 与 1% ----------
+    #   6 条 FAR 全叠在一张图上、再乘 N=1/2/4，曲线太多。计算仍保留全部 FAR，
+    #   只把「按 shot 上色」的对比面板画的 FAR 收窄到 5% 和 1%。
+    sub(nb, 23, "# ① noise\u2013threshold\n",
+        "_FAR_CMP = [f for f in TARGET_FARS if f in (0.05, 0.01)]  "
+        "# 不同 shot 对比图只画 1% 与 5%\n\n# ① noise\u2013threshold\n")
+    sub(nb, 23, "    for far in TARGET_FARS:\n", "    for far in _FAR_CMP:\n")
+    sub(nb, 23,
+        "_far_colors = plt.cm.Reds(np.linspace(0.35, 0.95, len(TARGET_FARS)))",
+        "_far_colors = plt.cm.Reds(np.linspace(0.35, 0.95, len(_FAR_CMP)))")
+    sub(nb, 23, "for far, fc in zip(TARGET_FARS, _far_colors):",
+        "for far, fc in zip(_FAR_CMP, _far_colors):")
+    sub(nb, 23,
+        "{[FAR_LABEL[f] for f in TARGET_FARS]}\uff08\u7edf\u8ba1\u7a97 {N_STAT} bins\uff09",
+        "{[FAR_LABEL[f] for f in _FAR_CMP]}\uff08\u4e0d\u540c shot \u5bf9\u6bd4"
+        "\u53ea\u753b 5%/1%\uff1b\u7edf\u8ba1\u7a97 {N_STAT} bins\uff09")
 
     # ---------- 5. 全局图名 v11 → v20 ----------
     for i, c in enumerate(nb["cells"]):

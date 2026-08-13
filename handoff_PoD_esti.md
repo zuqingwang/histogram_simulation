@@ -1,15 +1,35 @@
 # 交接文档 —— 当前工作：`PoD_esti`（探测概率估计）
 
 > 文件名：`handoff_PoD_esti.md`（禁止 `handoff_现在工作.md`）。
-> 最后更新：2026-08-10（**v20 附2**：不同 shot 的阈值对比图只画 5%/1%——模块 6 三面板 +
-> 模块 12B/C（计算仍保留全 6 条 FAR）；要求 4 的模块 15 加图 **15B0**「信号峰+bg」斜率 1 理想线，
-> 实测斜率 0.79–0.85<1、落理想线下方=加背景顶起高度不足 bg。**附1**：模块 12 阈值改「点连直线折线」
-> 非 `step` 阶梯，模块 11 图 ③ peak std 叠 Gumbel 极值解析。前情：v20 在 v11 上追加模块 11–17，
-> 补齐 4 条要求，三份全量扫描缓存跑完，无头验证 0 错误）。
-> 流水日志：`worklog_PoD_esti.md`。
+> 最后更新：2026-08-11（模块 15 拆成三张独立图；此前 2026-08-10 **v30** 文件结构大改 + 全量重算）。
+> 流水日志：`worklog_PoD_esti.md`；理论与公式推导：`theory_PoD_esti_v30.md`。
 >
-> **当前主产物是 `PoD_esti_v20.ipynb`。** v11 的内容一条都没删，物理参数一个都没改。
-> 剩下的唯一主线动作是在 Jupyter 里 Restart & Run All 跑一遍确认渲染（缓存都在，不会重算）。
+> **当前主产物是 `PoD_esti_v30.ipynb`（57 cell）。物理一条没改，只重排结构。**
+> 模块 15 现出三张独立图：`pod_v30_m15_T_focus.png`（精简）、`pod_v30_m15_T_all.png`（全量）、
+> `pod_v30_m15_qreq.png`（原右图）；精简版曲线由 `M15_T_FOCUS` 控制。
+---
+
+## ★ 新会话必读的四件事
+
+1. **不要手改 `PoD_esti_v30.ipynb`。** 它由 `build_pod_esti_v30.py` 生成，手改会在下次
+   build 时被覆盖。要改分析层就改 **`v30_cells.py`**；要改装配顺序或对 v20 内核的补丁，
+   就改 **`build_pod_esti_v30.py`**。改完跑：
+   `python build_pod_esti_v30.py; python build_pod_core_v30.py`
+
+2. **横轴只用 `bg`。** `noise`（单发 `hist_i` 每 bin 均值 `= bg/N`）从 v30 起
+   **不再作为任何图的横轴**，只用来描述单次直方图的底噪。
+
+3. **阈值 `T` 是整数计数，而且必须是。** `hist_add` 是 27×N 条二值轨迹求和，
+   判定 `peak >= T`，所以 `T=10.25` 与 `T=11` 完全等价。阈值曲线像阶梯是因为
+   bg 连续步进 0.25 而 T 只能跳 1，**不是 bug**。v20 用插值造"连续阈值"的模块 12 已作废。
+
+4. **这台机器的 PowerShell 不支持 `&&`**，串联命令用 `;`；带引号的 `python -c` 单行脚本
+   基本转义不过去，需要多语句就写成 `.py` 文件。
+
+5. **PoD 临界点求根器在 v30 被重写过**（v20 版本会把失败结果静默写进缓存，
+   造成模块 7/12/13 曲线出现 3–5 倍毛刺）。动这块代码前先读「踩过的坑」第 27 条。
+   改完必须跑 `python inspect_v30_cache.py` 看第 ③ 节的求根质量表，
+   **「超容差」那一列必须是 0**。
 
 ---
 
@@ -30,31 +50,78 @@
 
 仓库：`E:\claude temp\Histogram-simulation`。
 
-主产物：**`PoD_esti_v20.ipynb`**（51 cell）
-- 由 `PoD_esti_v11.ipynb` 经 `upgrade_pod_esti_v20_from_v11.py` 升级。
-- v11（38 cell）= v10 全模块 + 统一 bg 网格 + 模块 10；**v20 在其后追加模块 11–17，一条不删。**
+主产物：**`PoD_esti_v30.ipynb`**（57 cell：code 37 / markdown 20）
 
-### v20 追加的模块（对应用户的 4 条要求）
+在 1 bit（二值）SPAD 宏像元 + 多发累加的条件下，把"底噪多高 → 阈值定多少 →
+要多强回波才能以给定概率检出 → 因此能测多远"这条链算通，并给出可复现的 MC 证据。
 
-| 模块 | cell | 内容 | 要求 |
-|---|---|---|---|
-| 11 | 38/39 | 每条 hist 内 152 bin 的 std 均值 / peak 均值 / peak 标准差 随 bg（③ 叠 **Gumbel 极值解析** σ_peak≈(π/√6)σ_bin/z_M 对照） | 1 后半 |
-| 12 | 40/41 | 阈值 vs bg **折线**（采样点直线相连，非 `step`）+ 连续阈值 $T_c$；**跨 shot 对比（12B/C）只画 5%/1%** | 1「不要阶梯」 |
-| 13 | 42/43 | FAR=5% / 1% / 100 ppm 下 PoD50 与 PoD90 所需信号的均值 | 2 |
-| 14 | 44/45 | 平方反比测远（纯 1/D² 与含大气衰减两种口径） | 3 |
-| 15 | 46/47 | 同信号强度、不同 bg 时 peak 分布怎么变；图 **15B0** 加「信号峰+bg」斜率 1 理想线直接检验加法假设 | 4 |
-| 16 | 48/49 | 宏像元 3×9 vs 3×6 阈值对比 | 旁支并入 |
-| 17 | 50 | 理论汇总（阈值倍数 + 引擎一致性 + 口径说明） | 旁支并入 |
+### v30 的文件角色分工（**这张表是新会话最需要的**）
 
-### 口径（v11 起沿用）
+| 文件 | 角色 |
+|---|---|
+| `v30_cells.py` | **分析层 cell 源码**（模块 5–15 的计算/绘图参数/绘图三段式）。要改图先改这里 |
+| `build_pod_esti_v30.py` | **装配器**：从 v20 逐字抽物理内核 + 打 5 个带断言的补丁 + 拼上 `v30_cells` → notebook |
+| `PoD_esti_v30.ipynb` | **生成物，不要手改** |
+| `build_pod_core_v30.py` | 从 notebook cell 2/4/6/8/9/17/18/22 抽出 → `pod_esti_v30_core.py` |
+| `pod_esti_v30_core.py` | **生成物**，供所有多进程脚本 import |
+| `run_pod_v30_noise_scan.py` | 噪声扫描（模块 5 的数据源，也是模块 9/10/11 的数据源） |
+| `run_pod_v30_pod_scan.py` | PoD 临界能量（模块 6 的数据源，也是模块 7/12/13 的） |
+| `run_pod_v30_sig_scan.py` | 固定信号扫描（模块 8 的数据源，也是模块 14 的） |
+| `compare_macro_v30.py` | 宏像元 3×9 vs 3×6（模块 15 的数据源） |
+| `theory_PoD_esti_v30.md` | **全部理论与公式推导**（notebook 里不再有） |
+| `inspect_v30_cache.py` | 四份缓存体检 + 阈值抽样表 |
+| `check_v30_modules.py` | 按序无头实跑所有 code cell + matplotlib 缺字检查 |
+| `show_nb_cells.py` | 打 cell 地图 |
+
+### v30 模块表
+
+每个分析模块都是 `[计算/载入缓存] → [绘图参数] → [绘图]` 三段式；绘图 cell 只读缓存。
+
+| 模块 | 内容 | 数据来源 |
+|---|---|---|
+| 0–4 | 参数 / 光链路 / 时间窗 / SPAD 引擎 / 波形示例 | 现算 |
+| 5 | 纯噪声 bg 扫描 → peak 分布 + 阈值（只叠 1%/5%）+ 密度条带 | **唯一大重算** |
+| 6 | PoD 临界能量（只解 0.5/1/5/10% FAR） | PoD 扫描 |
+| 7 | 全 bg 汇总：临界 peak / 能量 / 等效距离 | 复用模块 6 |
+| 8 | 固定信号 × 全 bg：peak 均值 + 归一化增益 Δpeak/boost | 信号扫描 |
+| 9 | 阈值倍数 ρ_N = T_N/T_1 | **复用模块 5** |
+| 10 | hist 内 std / peak 均值 / peak std vs bg（叠二项与 Gumbel 解析） | **复用模块 5** |
+| 11 | 有效 z 值 (T−μ_peak)/σ_peak | **复用模块 5** |
+| 12 | PoD50/90 所需信号 | 复用模块 6 |
+| 13 | 平方反比测远 | 复用模块 6 |
+| 14 | 同信号不同 bg 的 peak 分布 + "peak+bg"加法理想线 | **复用模块 8** |
+| 15 | 宏像元 3×9 vs 3×6（线性轴；含 3×6@N=6 等 n_tr 校验；**三张独立图** ①a 精简 / ①b 全量 / ② q_req） | 宏像元缓存 |
+| 回收站 | v20 模块 6 图、v20 模块 12（连续阈值） | 整段 python 注释 |
+
+### v20 → v30 模块编号对照（v30 重排过，找旧结论时看这张表）
+
+| v20 模块 | v30 去向 |
+|---|---|
+| 5（noise 横轴扫描）+ 9（bg 横轴扫描） | **合并成 v30 模块 5**（统一 bg 横轴、0.25 步长、密度条带同 cell、只叠 1%/5% 阈值） |
+| 6（六条 FAR 阈值大图） | **作废** → 回收站，python 注释保留 |
+| 7（PoD 临界能量） | v30 模块 6（只解 4 条 FAR，交点图放大到过渡区，peak 分布改实心） |
+| 8（全 bg 汇总） | v30 模块 7 |
+| 10（固定信号 × bg 网格） | v30 模块 8（叠 1%/5% 阈值 + 新增「失守 bg」表） |
+| 11（阈值倍数 ρ） | v30 模块 9（删掉 noise 横轴那张） |
+| 13（有效 z 值） | v30 模块 11（删掉 noise 横轴那张，新增均值参考线） |
+| 12（插值造连续阈值） | **作废**（口径错误，见坑 21） |
+| 12C 那张图 | 保留为 v30 模块 12 |
+| 14（测距） | v30 模块 13 |
+| 15（同信号不同 bg 的 peak 分布） | v30 模块 14（含「peak+bg」理想线） |
+| 16（宏像元对比） | v30 模块 15（改线性轴、600k MC、补 3×6@N=6） |
+| 新增 | v30 模块 10（hist std / peak 均值 / peak std vs bg，复用模块 5 的 1e6 MC） |
+
+### 口径（v30 收紧）
 
 | 符号 | 含义 |
 |---|---|
 | `hist_i` | 第 i 发宏像元直方图 |
 | `hist_add(N)` | 前 N 发之和；N∈{1,2,4} |
-| **noise** | 单次 `hist_i` 统计窗均值 |
-| **bg** | `hist_add` 统计窗均值；`noise_target`/`noise_mc` 字段表示目标/实测 **bg** |
-| **peak** | 在 `hist_add` 上统计 |
+| **bg** | `hist_add` 统计窗每 bin 均值；`noise_target`/`noise_mc` 字段存的就是目标/实测 **bg** |
+| noise | 单次 `hist_i` 统计窗均值 `= bg/N`。**不再作横轴** |
+| **peak** | 在 `hist_add` 上统计的窗内最大计数 |
+| **T** | 检测阈值，**整数计数** |
+| `n_tr` | 轨迹数 `= n_pix × N_shots` |
 
 ### 与 v10 的关键差异
 
@@ -122,28 +189,35 @@ N_SHOTS_LIST=[1,2,4]
 BG_GRID = 0.25→12 / 0.25（48）；NOISE_GRID[n]=BG_GRID
 仿真：noise_amb = bg / N
 N_MC_NOISE=1e6；N_WORKERS=20；MC_CHUNK=5000
-模块 9.3/15：BOOST=[0,0.004,…,0.032]（9 档），N_MC_SIG_M9=8000
-模块 11：N_MC_HSP=100_000
-模块 13/14：FAR_M13=[5%, 1%, 100ppm]，LEVELS_M13=[0.50, 0.90]
-CACHE_* = pod_esti_v20_cache_*.npz（noise/pod fallback 到 pod_esti_v11_cache_*.npz）
+★ FAR_SPECS = 7 条：10ppm/100ppm/0.1%/0.5%/1%/5%/10%（10% 为 v30 新增）
+★ POD_FARS  = [0.5%, 1%, 5%, 10%]  只对这四条求 PoD 临界能量，阈值仍七条全算
+★ 模块 8/14：BOOST=[0,0.004,…,0.032]（9 档），N_MC_SIG=20_000（v20 为 8000）
+★ 模块 15：MACRO_N_MC=600_000（v20 为 300k）；3×6 额外跑 N=6 做等 n_tr 校验
+★ RUN_ENGINE_CHECK=False（模块 3c 默认跳过）
+CACHE_* = pod_esti_v30_cache_*.npz + compare_macro_v30_cache.npz
+★ CACHE_*_FALLBACK 一律为空：FAR 列表与 res 结构都变了，旧缓存不可复用
 ```
 
-### 缓存现状（全部已跑完，2026-08-09）
+### 缓存现状（v30 全量重算，2026-08-10）
 
 | 缓存 | 规模 | 状态 |
 |---|---|---|
-| `pod_esti_v11_cache_noise.npz` | 48 bg × N∈{1,2,4} × 1,000,000 MC | 144/144 done |
-| `pod_esti_v11_cache_pod.npz` | 144 档 PoD 临界点 | done（本轮补跑 32 档，13.8 min） |
-| `pod_esti_v20_cache_signal.npz` | 48 bg × 9 boost × 3 N × 8,000 MC | 1296/1296 done（11.7 min） |
-| `scan_hist_std_peak_cache.npz` | 48 bg × 3 N × 100,000 MC | done（模块 11 用） |
-| `compare_macro_3x9_vs_3x6_cache.npz` | 24 档 p_eq × 7 配置 × 200,000 MC | done（模块 16 用） |
+| `pod_esti_v30_cache_noise.npz` | 48 bg × N∈{1,2,4} × 1,000,000 MC | 144/144 done，**18 min** |
+| `pod_esti_v30_cache_pod.npz` | 144 档 PoD 临界点（4 条 FAR × PoD50/90） | done，**11.4 min**（用修好的求根器重跑） |
+| `pod_esti_v30_cache_signal.npz` | 48 bg × 9 boost × 3 N × 20,000 MC | 1296/1296 done，24.9 min |
+| `compare_macro_v30_cache.npz` | 24 档 p_eq × 7 配置 × 600,000 MC | 168/168 done，24.4 min |
+
+总机时约 **79 min**。`scan_hist_std_peak_cache.npz` **已不再使用**：`hist_std` 并入噪声扫描的
+充分统计量（`stats_from_hist_i` 新增 `hist_std_sum`），模块 10 直接复用那批 1e6 MC。
 
 ### 验证现状
 
-`python check_v20_modules.py --syntax` → 51 cell，**0 语法错误**。
-`python check_v20_modules.py --all` → 无头真跑 cell 28/31/33/35/37/39/41/43/45/47/49，
-**0 运行期错误**，全部 `pod_v20_*.png` 已落盘。
-（这只是无头验证，**还没在 Jupyter 里 Restart & Run All**。）
+- `python build_pod_esti_v30.py` 自带 AST 自检：37 个 code cell **0 语法错误**。
+- `python check_v30_modules.py` → 按序无头实跑全部 code cell：**37/37 通过，0.3 min，无缺字警告**。
+- `python inspect_v30_cache.py` → 四份缓存完成度、阈值抽样表，以及
+  **PoD 求根质量体检**（逐 N × FAR × PoD 等级统计 `|验证 PoD − 目标|`）。
+  当前结果：**1152 个临界点全部收敛，超容差 0 个**，最大误差 0.0198、中位约 0.005。
+- （**还没在 Jupyter 里 Restart & Run All**，只做过无头实跑。）
 
 ### 已完成的旁支分析：宏像元 3×9 vs 3×6（`compare_macro_3x9_vs_3x6.py`）
 
@@ -274,30 +348,34 @@ FAR=1%、PoD90、bg=6.25 时纯 1/D² 测距 N=1 为 56.4 m、N=2 为 112.3 m、
 
 ## 3. 目前面临的问题、卡在哪里
 
-**没有卡住的地方。** 所有扫描已跑完，所有新模块已无头验证通过。剩下的都是可选收尾：
+**没有卡住的地方。** v30 已生成，四份缓存已全量重算。剩下的都是可选收尾：
 
-1. **还没在 Jupyter 里 Restart & Run All**。缓存都在，预计只花在绘图和渲染上，不会重算 MC。
-   编辑器须先 **Revert/重开** `PoD_esti_v20.ipynb` 再 Restart → Run All。
-2. 模块 14 的测距曲线逐点抖动几米（原因见上），要更平滑得加大 `N_MC_POD_VERIFY`
-   并收紧 `POD_VERIFY_TOL`，代价是 PoD 扫描时间线性增长。
-3. **（待查）** `theory_engine_equivalence.py` 的 T5b 里，步进引擎 `binary_macro_stepping`
-   在 dt=800/200 ps 两档都比解析值**偏低**（2.2σ / 0.7σ，未达显著但方向一致），
-   怀疑是它「先出 bin、再处理本步雪崩」的半步对齐。纯噪声扫描用快速引擎不受影响，
-   但 **PoD 信号支路（`binary_macro_stepping_per_shot`）用的正是它**，建议加大样本复核。
+1. **还没在 Jupyter 里 Restart & Run All**。缓存都在，只花在绘图渲染上，不会重算 MC。
+   编辑器须先 **Revert/重开** `PoD_esti_v30.ipynb` 再 Restart → Run All。
+2. ~~10% FAR 档的 PoD 交点偏噪~~ **已解决**。曾以为是「整数阈值在低计数区的固有现象」，
+   实际是 PoD 求根器的 bug（初值偏 + 验证只做一次固定修正 + 无条件接受），
+   详见下面「踩过的坑」第 6 条。修好后 1152 个临界点全部收敛，模块 7/12/13 的毛刺消失。
+3. **模块 10 面板③的 Gumbel 极值解析在高 bg 段系统性偏低**（实测 σ_peak > 解析）。
+   推测是 `T_OVER=8 ns` 造成的 bin 间正相关让有效独立 bin 数 `M_eff` 明显小于 152，
+   而解析式仍按 152 个独立 bin 算。这是**模型不够，不是数据错**，待补 `M_eff` 修正项。
+4. **（待查，v11 起就挂着）** `theory_engine_equivalence.py` 的 T5b 里，步进引擎
+   `binary_macro_stepping` 在 dt=800/200 ps 两档都比解析值**偏低**（2.2σ / 0.7σ，
+   未达显著但方向一致），怀疑是它「先出 bin、再处理本步雪崩」的半步对齐。
+   纯噪声扫描用快速引擎不受影响，但 **PoD 信号支路
+   （`binary_macro_stepping_per_shot`）用的正是它**，建议加大样本复核。
 
 ---
 
 ## 4. 下一步计划
 
-1. 打开 `PoD_esti_v20.ipynb`，**Revert/重开 → Restart → Run All**，确认渲染无误。
-   若中途要重建内核：`python build_pod_core_v20.py`。
-2. 用模块 10/12 的 MC 曲线逐条对照 `theory_peak_bg_multishot.md` 第 10 节的 7 条检查清单，
-   把 ρ̄、残差、是否常数写回 `worklog_PoD_esti.md`。
-   （模块 12 的连续阈值正是为这件事准备的 —— 别再用整数阈值比值。）
-3. 复核 `binary_macro_stepping` 的半步对齐（见上第 3 条）。
-4. （可选）加大 `N_MC_POD_VERIFY`、收紧 `POD_VERIFY_TOL`，抹平模块 14 测距曲线的抖动。
-5. （可选）`compare_macro_3x9_vs_3x6.py` 若要 100 ppm 阈值，需 `--n-mc 2000000` 重跑
-   （缓存键含 n_mc，会自动判失效重算）。
+1. 打开 `PoD_esti_v30.ipynb`，**Revert/重开 → Restart → Run All**，确认渲染无误。
+2. 逐图核对绘图参数是否合适：每个模块的「绘图参数」cell 里都注明了每个参数管哪根轴，
+   看着不顺眼直接改那个 cell 再跑绘图 cell，**不会触发重算**。
+3. 用模块 9/10/11 的 MC 曲线逐条对照 `theory_PoD_esti_v30.md` 与
+   `theory_peak_bg_multishot.md` 第 10 节的检查清单，把 ρ̄、残差写回 `worklog_PoD_esti.md`。
+4. 复核 `binary_macro_stepping` 的半步对齐（见上第 4 条）。
+5. 给模块 10 面板③的 Gumbel 解析补 `M_eff` 修正（见上第 3 条）：
+   先用噪声扫描里的 peak 分布反解「等效独立 bin 数」，看它随 bg 怎么走。
 6. （可选）把「亚阈雪崩不复位」的非顺延变体做成开关，验证同 bg 下阈值曲线的二阶差异；
    解析上 p_bin 差异从 p_eq=0.0185 的 −0.4% 增大到 p_eq=0.4444 的 −13.7%，
    但因 `r_det` 是由目标 bg 反解的，这个差异主要被吸收进 klux 换算里。
@@ -306,14 +384,21 @@ FAR=1%、PoD90、bg=6.25 时纯 1/D² 测距 N=1 为 56.4 m、N=2 为 112.3 m、
 
 ```powershell
 $env:PYTHONIOENCODING="utf-8"
-python build_pod_core_v20.py
-python run_pod_v20_noise_scan.py --workers 20                 # 144 档 × 1e6 MC
-python run_pod_v20_pod_scan.py   --workers 20                 # 约 14 min
-python run_pod_v20_sig_scan.py   --workers 20                 # 约 12 min
-python scan_hist_std_peak.py     --workers 20 --n-mc 100000   # 模块 11
-python check_v20_modules.py --syntax
-python check_v20_modules.py --all
+# 改过 v30_cells.py / build_pod_esti_v30.py 之后必须先重建
+python build_pod_esti_v30.py                                   # → PoD_esti_v30.ipynb（含 AST 自检）
+python build_pod_core_v30.py                                   # → pod_esti_v30_core.py
+
+# 四个扫描必须按顺序（PoD 依赖噪声扫描的阈值）
+python run_pod_v30_noise_scan.py --workers 20                  # 144 档 × 1e6 MC，约 18 min
+python run_pod_v30_pod_scan.py   --workers 20                  # 144 档，约 8 min
+python run_pod_v30_sig_scan.py   --workers 20 --n-mc 20000     # 1296 档
+python compare_macro_v30.py      --workers 20 --n-mc 600000    # 7 配置 × 24 档
+
+python inspect_v30_cache.py                                    # 缓存体检
+python check_v30_modules.py                                    # 无头实跑 + 缺字检查
 ```
+
+**注意**：这台机器的 PowerShell **不支持 `&&`**，串联用 `;`。
 
 ---
 
@@ -376,3 +461,69 @@ python check_v20_modules.py --all
     模块 14 用 cell 28 的 `equiv_distance`，模块 15 用 cell 35 的 `SIG_M9`。
     Run All 顺序没问题，但单独跑某个 cell 会 NameError。
     `check_v20_modules.py` 的默认 cell 列表已按依赖排好序，验证时直接用 `--all`。
+    **v30 已改善**：`_COLORS_N` 移到模块 0 全局参数里定义，不再依赖某个分析模块先跑过。
+
+### v30 新增的坑
+
+21. **【最重要】"阈值应该是 0.25 的小数"是误解，不要照做。**
+    `hist_add` 是 27×N 条**二值**轨迹求和，取值只能是整数 0…n_tr，判定是 `peak >= T`，
+    所以 `T=10.25` 与 `T=11` 是**同一个判定**，0.25 粒度的阈值在计数轴上没有物理意义。
+    阈值曲线像阶梯的真正原因：**bg 是均值、可以 0.25 连续步进，而 T 只能按 1 计数跳**。
+    **v20 模块 12 用插值造"连续实数阈值"是错误方向，v30 已整块作废进回收站。**
+    唯一能出现 0.25 粒度的真实口径是除以 `N_shots` 看"每发平均计数"（粒度 1/N，N=4 → 0.25），
+    但它与 bg 不同轴，混画会串口径。
+
+22. **进度打印里不要写死 FAR tag。** `run_pod_v30_pod_scan.py` 的 `_progress_msg()`
+    原样从 v20 抄过来，写死了 `critical["100ppm"]`。v30 把 `T_map` 限制到 `POD_FARS` 之后，
+    `critical` 里根本没有 `100ppm` 键 → **每一档都误报「无有效交点」**，看着像全盘失败，
+    其实数据完全正常。已改成从 `POD_FARS` 自动挑第一个存在的 tag。
+    **教训：日志里引用配置项要跟着配置走，否则会制造假警报，浪费排查时间。**
+
+23. **`PoD_esti_v30.ipynb` 是生成物，手改会丢。** 改分析层去 `v30_cells.py`，
+    改装配/补丁去 `build_pod_esti_v30.py`，然后重新 build。
+    build 脚本里的补丁都用 `must_replace()` 带命中数断言，v20 结构一变就直接报错，
+    不会悄悄产出错的 v30。
+
+24. **模块 5 的计算段必须拆成两个 cell**（noise 扫描 / 阈值）。合成一个 cell 的话，
+    `build_pod_core_v30.py` 没法在"自动开跑"处截断——截了会把后面的阈值函数一起切掉。
+
+25. **`σ_peak` 的方向别写反**（这是坑 19 的再强调，我在写 v30 理论文档时又写错了一次）。
+    有信号时 `σ(b)/σ(0)` **始终 ≥ 1**，不是变小。信号自身的二项涨落叠在噪声之上，
+    盖过了"位置被钉住"省下的极值离散度。
+
+26. ~~**10% FAR 是 v30 新加的档，天生噪。** T 只有 3–6 个计数时 PoD 随 boost 是粗台阶，
+    probit 拟合吃力，个别档验证 PoD 落到 0.27 / 0.999。不是 bug，是整数阈值在低计数区的固有现象。~~
+    **【这条判断是错的，见第 27 条】** 把真 bug 归因成"固有现象"，差点让它留在成品里。
+    教训：当"固有现象"这个解释能让你不用动手修时，先怀疑这个解释本身。
+
+27. **【最重要】PoD 临界点求根器会把失败结果静默写进缓存 —— 已修，但要知道它长什么样。**
+
+    **现象**：模块 7 的临界 peak / 临界发射能量 / 等效测距三张图上，5% 与 10% FAR 曲线
+    出现大量 3–5 倍的尖刺，相邻 bg 档反复横跳。例：`N=4, bg=8.75, 5%` 解出 `boost=0.0287`，
+    而邻档 `bg=9.00` 只要 `0.00779`。
+
+    **怎么发现的**：不是看图猜，是去缓存里把每个临界点的 **验证 PoD** 调出来对比目标值。
+    发现失败点的验证 PoD 是 **1.000 或 0.68**，根本不是 0.90 ——
+    **错误一直明写在数据里，只是从来没人检查过。**
+
+    **根因三层，缺一不可**：
+    - 粗扫描太稀：`N_POD_COARSE=11` 个点铺满 4 个数量级（0.4 decade 间距），每点仅 300 MC，
+      粗交点本身就能偏半个数量级；
+    - 局部窗太窄：`POD_LOCAL_HALF_DECADE=0.22`，粗交点一偏，加密网格**整段错过真根**；
+    - 验证不设防：`_verify_critical_batch` 只做 **一次** Newton 步、步长还夹在 ±0.25 decade
+      （初值偏 0.6 decade 时数学上就追不回来），然后**无条件接受**。
+
+    **修法**（`build_pod_esti_v30.py` 的 `patch_pod_scan` + `_SOLVER_NEW`）：
+    粗扫 11→15 点、300→600 MC；局部窗 0.22→0.35 decade；probit 改**逐 level 局部拟合**
+    （只用交点 ±0.6 decade 内的点，不让远处 PoD≈0/≈1 的饱和点拽偏斜率）；
+    验证改成**带括号的多轮迭代**（有括号走 probit 割线、退化则二分；无括号用斜率做 Newton 步
+    并主动外扩），最多 6 轮，每轮所有活跃候选一起并行评估，最后取最接近目标的点，
+    并把 `pod_err` / `verify_rounds` 存进记录。
+
+    **结果**：1152 个临界点全部收敛，超容差 0 个，最大误差 0.0198。模块 7/12/13 毛刺消失。
+
+    **通用教训（下次写任何迭代求根都适用）**：
+    ① 解完一定要回头验一遍，不合格就继续迭代或报错，**绝不能静默接受**；
+    ② 固定次数 + 夹死步长的"修正"不是求根，是许愿；
+    ③ 把解的质量指标（这里是 `pod_err`）**存进缓存**，这样体检脚本能直接查，
+       不用靠肉眼看曲线毛刺来发现问题——`inspect_v30_cache.py` 第 ③ 节现在就是干这个的。

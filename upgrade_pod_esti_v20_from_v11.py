@@ -1258,6 +1258,19 @@ def main():
         "{[FAR_LABEL[f] for f in _FAR_CMP]}\uff08\u4e0d\u540c shot \u5bf9\u6bd4"
         "\u53ea\u753b 5%/1%\uff1b\u7edf\u8ba1\u7a97 {N_STAT} bins\uff09")
 
+    # ---------- 4c. 字体缺字修补（YaHei 无 ρ / ⇒）----------
+    # 模块 9.1 / 10C：希腊 ρ 放进 mathtext，双箭头换成单箭头，避免图上出现方框。
+    sub(nb, 31, 'ax[1].set_title("按 N 归一（重合 ⇒ 形状一致）")',
+        'ax[1].set_title("按 N 归一（重合 → 形状一致）")', required=False)
+    sub(nb, 37,
+        'ax.set_title(f"(ρ−ρ̄)/ρ̄　FAR={FAR_LABEL[far]}")',
+        'ax.set_title(rf"$(\\rho-\\bar{{\\rho}})/\\bar{{\\rho}}$  FAR={FAR_LABEL[far]}")',
+        required=False)
+    sub(nb, 37,
+        'ax.axhline(1.0, color="k", ls=":", lw=1.2, label="理想泊松 ρ=1")',
+        'ax.axhline(1.0, color="k", ls=":", lw=1.2, label=r"理想泊松 $\\rho$=1")',
+        required=False)
+
     # ---------- 5. 全局图名 v11 → v20 ----------
     for i, c in enumerate(nb["cells"]):
         s = "".join(c["source"])

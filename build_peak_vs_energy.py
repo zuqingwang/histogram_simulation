@@ -365,6 +365,15 @@ md(r"""
   斜率由 peak 均值低于 2 计数的那些档拟合得到。曲线什么时候离开这条虚线，就是饱和开始的地方。
 - **中：全局** —— 一路到约 95% 二值硬上限，看完整的压缩过程。
 - **右：穿过饱和** —— peak 彻底封顶后就是一条平线（真正还在变的是 FWHM，见模块 5）。
+
+**另附三张体检图**：
+
+1. **线性拟合双轴图**（`boost ∈ [0, 0.1]`）：左 = peak + 过原点直线；右 = 相对误差。
+2. **饱和指数拟合双轴图**（同一 boost 窗）：形式
+   $\mathrm{peak} \approx A\,(1-e^{-\alpha\cdot\mathrm{boost}})$
+   （不是无界的 $A e^{bx}$——peak 有硬上限 $n_{tr}$）。
+   低能极限 $A\alpha\cdot\mathrm{boost}$ 应接近线性斜率。左 = peak + 拟合曲线；右 = 相对误差。
+3. **5% 线性区图**：相对低能线性斜率的误差，标出连续满足 `|err|≤5%` 的 peak 上限。
 """)
 
 code(r"""
@@ -381,6 +390,25 @@ M3_USE_LOG_X_DEEP = False         # 【右图横轴】True = 改成对数轴。�
                                   #   想看完整深饱和段可以打开；定量结论另见模块 6 的表
 M3_MARKER_MS      = 3.4
 M3_FIGSIZE        = (16.8, 5.2)
+# ---- 拟合双轴图（boost 窗；左 peak / 右相对误差）----
+M3_FIT_XLIM       = (0.0, 0.1)    # 【拟合图横轴】信号能量倍率 boost 范围（线性/指数共用）
+M3_FIT_YLIM_PEAK  = None          # 【左纵轴】peak 均值；None = 按窗内数据自动
+M3_FIT_YLIM_ERR   = None          # 【右纵轴】相对误差；None = 按窗内 err 自动（含正负）
+M3_FIT_SLOPE_MODE = "low_energy"  # 【线性斜率口径】"low_energy" / "full_window"
+M3_FIT_SHOW_TOL   = False         # 【线性拟合右纵轴】是否叠 ±M3_LIN_TOL 灰带（默认关掉）
+M3_FIT_FIGSIZE    = (15.6, 4.8)
+# ---- 饱和指数拟合 ----
+# 形式 peak ≈ A * (1 - exp(-α * boost))；低能极限斜率 = A*α
+M3_EXP_ENABLE     = True          # 【开关】是否画饱和指数拟合双轴图
+M3_EXP_A_MODE     = "free"        # 【渐近线】"free" = 拟合 A；"n_tr" = 固定 A = n_tr（二值硬上限）
+M3_EXP_SHOW_LIN   = True          # 【左纵轴】是否叠低能线性参考（便于对比）
+M3_EXP_SHOW_TOL   = False         # 【指数拟合右纵轴】是否叠 ±M3_LIN_TOL 灰带（默认关掉）
+M3_EXP_YLIM_ERR   = None          # 【右纵轴】相对误差范围；None = 自动
+# ---- 5% 线性区附图 ----
+M3_LIN_TOL        = 0.05          # 【线性容差】|peak/(斜率×boost) − 1| ≤ 此值 视为仍线性
+M3_LIN_XLIM_PEAK  = None          # 【附图横轴】peak 均值范围；None = 自动到略超过 5% 越界点
+M3_LIN_YLIM_ERR   = (-0.20, 0.05) # 【附图纵轴】相对误差；饱和后误差朝负向走（实测 < 线性外推）
+M3_LIN_FIGSIZE    = (8.4, 4.8)
 """)
 
 code(r"""
@@ -424,6 +452,272 @@ fig.suptitle(f"模块 3　图 i：peak 均值 vs 信号能量（bg = {BG:g}，�
 fig.tight_layout(rect=[0, 0, 1, 0.93])
 plt.show()
 
+# ---- 拟合双轴图：boost 窗；左 peak / 右相对误差 ----
+# 斜率口径由 M3_FIT_SLOPE_MODE 决定（见参数 cell）。
+FIT_WIN = {}
+_b_hi = float(M3_FIT_XLIM[1])
+_mode = str(M3_FIT_SLOPE_MODE).strip().lower()
+for n in N_LIST:
+    S = STAT[n]
+    m_show = (BOOSTS > 0) & (BOOSTS <= _b_hi)
+    b, p = BOOSTS[m_show], S["peak_mu"][m_show]
+    if _mode == "full_window":
+        m_fit = m_show
+    else:
+        # 默认：只拿真正还线性的点定斜率，再把参考线铺满整个显示窗
+        m_fit = m_show & (S["peak_mu"] <= LIN_FIT_PEAK_MAX)
+    b_f, p_f = BOOSTS[m_fit], S["peak_mu"][m_fit]
+    if m_fit.sum() >= 2:
+        slope = float((p_f * b_f).sum() / (b_f ** 2).sum())
+    else:
+        slope = float(S["lin_slope"])  # 回退到模块 0 的低能斜率
+    with np.errstate(invalid="ignore", divide="ignore"):
+        err = np.where(b > 0, p / (slope * b) - 1.0, np.nan)
+    FIT_WIN[n] = dict(mask=m_show, boost=b, peak=p, err=err, slope=slope,
+                      n_fit=int(m_fit.sum()))
+
+fig, axes = plt.subplots(1, len(N_LIST), figsize=M3_FIT_FIGSIZE, sharex=True)
+if len(N_LIST) == 1:
+    axes = [axes]
+for ax, n in zip(axes, N_LIST):
+    S, F = STAT[n], FIT_WIN[n]
+    c = _COLOR_N[n]
+    ax.plot(F["boost"], F["peak"], "-o", color=c, lw=1.6, ms=M3_MARKER_MS,
+            label="peak 均值（MC）")
+    if np.isfinite(F["slope"]):
+        xr = np.linspace(0.0, _b_hi, 80)
+        ax.plot(xr, F["slope"] * xr, ":", color="0.25", lw=1.8,
+                label=f"过原点拟合  slope={F['slope']:.1f}")
+    ax.set_xlim(*M3_FIT_XLIM)
+    if M3_FIT_YLIM_PEAK is not None:
+        ax.set_ylim(*M3_FIT_YLIM_PEAK)
+    else:
+        _ymax = float(np.nanmax(F["peak"])) if F["peak"].size else 1.0
+        ax.set_ylim(0.0, max(1.0, 1.08 * _ymax))
+    ax.set_xlabel("信号能量倍率 boost")
+    ax.set_ylabel("peak 均值 [计数/bin]", color=c)
+    ax.tick_params(axis="y", labelcolor=c)
+    ax.set_title(f"N_shots={n}（n_tr={S['n_tr']}）", fontsize=10.5)
+    ax.grid(alpha=0.3)
+
+    ax2 = ax.twinx()
+    if M3_FIT_SHOW_TOL:
+        ax2.axhspan(-M3_LIN_TOL, M3_LIN_TOL, color="0.85", alpha=0.65, zorder=0,
+                    label=f"|err|≤{M3_LIN_TOL:.0%} 参考带")
+    ax2.axhline(0.0, color="0.4", ls=":", lw=1.0)
+    ax2.plot(F["boost"], F["err"], "-s", color="0.2", lw=1.3, ms=M3_MARKER_MS - 0.4,
+             alpha=0.9, label="相对误差")
+    if M3_FIT_YLIM_ERR is not None:
+        ax2.set_ylim(*M3_FIT_YLIM_ERR)
+    else:
+        _e = F["err"][np.isfinite(F["err"])]
+        if _e.size:
+            _lo, _hi = float(_e.min()), float(_e.max())
+            _pad = 0.08 * max(0.2, _hi - _lo)
+            ax2.set_ylim(_lo - _pad, _hi + _pad)
+    ax2.set_ylabel("相对误差 = peak/(斜率×boost) − 1", color="0.2")
+    ax2.tick_params(axis="y", labelcolor="0.2")
+
+    h1, l1 = ax.get_legend_handles_labels()
+    h2, l2 = ax2.get_legend_handles_labels()
+    ax.legend(h1 + h2, l1 + l2, fontsize=7.5, loc="upper left")
+
+_mode_cn = ("低能点定斜率" if _mode != "full_window" else "整窗全部点定斜率")
+fig.suptitle(f"模块 3　附图：boost∈[{M3_FIT_XLIM[0]:g},{M3_FIT_XLIM[1]:g}] 线性拟合"
+             f"（{_mode_cn}；左=peak，右=相对误差；bg={BG:g}）", fontsize=12.0)
+fig.tight_layout(rect=[0, 0, 1, 0.93])
+plt.show()
+
+print("=" * 96)
+print(f"窗内线性拟合（显示 boost ≤ {M3_FIT_XLIM[1]:g}；斜率模式 = {M3_FIT_SLOPE_MODE!r}）")
+print(f"  {'N':>3} {'n_tr':>5} {'斜率':>12} {'拟合点数':>8} {'窗末peak':>10} {'窗末相对误差':>14}")
+for n in N_LIST:
+    S, F = STAT[n], FIT_WIN[n]
+    e_last = float(F["err"][-1]) if F["err"].size and np.isfinite(F["err"][-1]) else np.nan
+    p_last = float(F["peak"][-1]) if F["peak"].size else np.nan
+    print(f"  {n:>3} {S['n_tr']:>5} {F['slope']:>12.2f} {F['n_fit']:>8d} "
+          f"{p_last:>10.2f} {e_last:>+14.2%}")
+
+# ---- 饱和指数拟合双轴图：peak ≈ A*(1-exp(-α*boost)) ----
+# 物理动机：二值轨迹点亮概率 ~ 1-e^{-κ·能量}；低能极限 A*α 应接近线性斜率。
+# 不要用无界的 A*exp(b*x)——peak 有硬上限 n_tr。
+FIT_EXP = {}
+if M3_EXP_ENABLE:
+    from scipy.optimize import curve_fit as _curve_fit
+
+    def _sat_exp(b, A, alpha):
+        return A * (1.0 - np.exp(-np.asarray(b, dtype=float) * alpha))
+
+    _b_hi = float(M3_FIT_XLIM[1])
+    _a_mode = str(M3_EXP_A_MODE).strip().lower()
+    for n in N_LIST:
+        S = STAT[n]
+        m = (BOOSTS > 0) & (BOOSTS <= _b_hi)
+        b, p = BOOSTS[m].astype(float), S["peak_mu"][m].astype(float)
+        n_tr = float(S["n_tr"])
+        slope0 = float(S["lin_slope"]) if np.isfinite(S["lin_slope"]) else float(p.max() / max(b.max(), 1e-12))
+        alpha0 = max(slope0 / max(n_tr, 1.0), 1e-6)
+        ok = False
+        A_hat, alpha_hat = np.nan, np.nan
+        try:
+            if _a_mode == "n_tr":
+                def _f1(bb, alpha):
+                    return n_tr * (1.0 - np.exp(-bb * alpha))
+                (alpha_hat,), _ = _curve_fit(
+                    _f1, b, p, p0=[alpha0],
+                    bounds=(1e-8, np.inf), maxfev=20000)
+                A_hat = n_tr
+            else:
+                (A_hat, alpha_hat), _ = _curve_fit(
+                    _sat_exp, b, p, p0=[n_tr, alpha0],
+                    bounds=([1e-6, 1e-8], [np.inf, np.inf]), maxfev=20000)
+            ok = True
+        except Exception as _e:
+            print(f"  [警告] N={n} 饱和指数拟合失败：{_e}")
+        pred = _sat_exp(b, A_hat, alpha_hat) if ok else np.full_like(p, np.nan)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            err = np.where(pred > 0, p / pred - 1.0, np.nan)
+        rmse = float(np.sqrt(np.nanmean((p - pred) ** 2))) if ok else np.nan
+        # 与同窗线性外推（低能斜率）比一下 RMSE，量化「指数是否更好」
+        lin_pred = slope0 * b
+        rmse_lin = float(np.sqrt(np.nanmean((p - lin_pred) ** 2)))
+        FIT_EXP[n] = dict(
+            boost=b, peak=p, pred=pred, err=err, ok=ok,
+            A=float(A_hat), alpha=float(alpha_hat),
+            slope_low=A_hat * alpha_hat if ok else np.nan,
+            lin_slope=slope0, rmse=rmse, rmse_lin=rmse_lin, n_fit=int(m.sum()),
+        )
+
+    fig, axes = plt.subplots(1, len(N_LIST), figsize=M3_FIT_FIGSIZE, sharex=True)
+    if len(N_LIST) == 1:
+        axes = [axes]
+    for ax, n in zip(axes, N_LIST):
+        S, F = STAT[n], FIT_EXP[n]
+        c = _COLOR_N[n]
+        ax.plot(F["boost"], F["peak"], "-o", color=c, lw=1.6, ms=M3_MARKER_MS,
+                label="peak 均值（MC）")
+        if F["ok"]:
+            xr = np.linspace(0.0, _b_hi, 120)
+            ax.plot(xr, _sat_exp(xr, F["A"], F["alpha"]), "-", color="0.15", lw=1.9,
+                    label=f"A(1-e^(-αb))  A={F['A']:.1f}, α={F['alpha']:.2f}")
+        if M3_EXP_SHOW_LIN and np.isfinite(F["lin_slope"]):
+            xr = np.linspace(0.0, _b_hi, 80)
+            ax.plot(xr, F["lin_slope"] * xr, ":", color="0.45", lw=1.5,
+                    label=f"低能线性  slope={F['lin_slope']:.1f}")
+        ax.set_xlim(*M3_FIT_XLIM)
+        if M3_FIT_YLIM_PEAK is not None:
+            ax.set_ylim(*M3_FIT_YLIM_PEAK)
+        else:
+            _ymax = float(np.nanmax(F["peak"])) if F["peak"].size else 1.0
+            ax.set_ylim(0.0, max(1.0, 1.08 * _ymax))
+        ax.set_xlabel("信号能量倍率 boost")
+        ax.set_ylabel("peak 均值 [计数/bin]", color=c)
+        ax.tick_params(axis="y", labelcolor=c)
+        ax.set_title(f"N_shots={n}（n_tr={S['n_tr']}）", fontsize=10.5)
+        ax.grid(alpha=0.3)
+
+        ax2 = ax.twinx()
+        if M3_EXP_SHOW_TOL:
+            ax2.axhspan(-M3_LIN_TOL, M3_LIN_TOL, color="0.85", alpha=0.65, zorder=0,
+                        label=f"|err|≤{M3_LIN_TOL:.0%} 参考带")
+        ax2.axhline(0.0, color="0.4", ls=":", lw=1.0)
+        ax2.plot(F["boost"], F["err"], "-s", color="0.2", lw=1.3, ms=M3_MARKER_MS - 0.4,
+                 alpha=0.9, label="相对误差（对指数）")
+        _ylim_e = M3_EXP_YLIM_ERR if M3_EXP_YLIM_ERR is not None else M3_FIT_YLIM_ERR
+        if _ylim_e is not None:
+            ax2.set_ylim(*_ylim_e)
+        else:
+            _e = F["err"][np.isfinite(F["err"])]
+            if _e.size:
+                _lo, _hi = float(_e.min()), float(_e.max())
+                _pad = 0.08 * max(0.05, _hi - _lo)
+                ax2.set_ylim(_lo - _pad, _hi + _pad)
+        ax2.set_ylabel("相对误差 = peak / 指数拟合 − 1", color="0.2")
+        ax2.tick_params(axis="y", labelcolor="0.2")
+        h1, l1 = ax.get_legend_handles_labels()
+        h2, l2 = ax2.get_legend_handles_labels()
+        ax.legend(h1 + h2, l1 + l2, fontsize=7.0, loc="upper left")
+
+    _a_cn = ("A 自由拟合" if _a_mode != "n_tr" else "A 固定为 n_tr")
+    fig.suptitle(f"模块 3　附图：饱和指数拟合 peak≈A(1-e^(-α·boost))"
+                 f"（{_a_cn}；boost∈[{M3_FIT_XLIM[0]:g},{M3_FIT_XLIM[1]:g}]；bg={BG:g}）",
+                 fontsize=12.0)
+    fig.tight_layout(rect=[0, 0, 1, 0.93])
+    plt.show()
+
+    print("=" * 96)
+    print(f"饱和指数拟合 peak≈A(1-exp(-α·boost))（boost≤{M3_FIT_XLIM[1]:g}；A 模式={M3_EXP_A_MODE!r}）")
+    print(f"  {'N':>3} {'n_tr':>5} {'A':>10} {'α':>10} {'A·α(低能斜率)':>14} "
+          f"{'低能线性斜率':>12} {'RMSE_指数':>10} {'RMSE_线性':>10} {'窗末相对误差':>14}")
+    for n in N_LIST:
+        F = FIT_EXP[n]
+        e_last = float(F["err"][-1]) if F["err"].size and np.isfinite(F["err"][-1]) else np.nan
+        print(f"  {n:>3} {STAT[n]['n_tr']:>5} {F['A']:>10.2f} {F['alpha']:>10.3f} "
+              f"{F['slope_low']:>14.2f} {F['lin_slope']:>12.2f} "
+              f"{F['rmse']:>10.3f} {F['rmse_lin']:>10.3f} {e_last:>+14.2%}")
+
+# ---- 附图：相对线性外推的误差 vs peak，标出 |err|≤5% 的连续区间上限 ----
+# 口径：从低能往上，连续满足 |peak/(斜率×boost)−1| ≤ M3_LIN_TOL 的最后一档；
+# 一旦越界就停，后面即使偶然再落回容差内也不算（避免饱和回折误判）。
+# 注意：这里的斜率仍用模块 0 低能段（peak≤LIN_FIT_PEAK_MAX）拟合的 STAT['lin_slope']，
+# 与上方「整窗拟合」不同——整窗会被饱和段压低斜率，不适合用来划「可当线性」上限。
+LIN_OK = {}
+for n in N_LIST:
+    S = STAT[n]
+    ref = S["lin_slope"] * BOOSTS
+    with np.errstate(invalid="ignore", divide="ignore"):
+        err = np.where(BOOSTS > 0, S["peak_mu"] / ref - 1.0, np.nan)
+    ok = np.isfinite(err) & (np.abs(err) <= M3_LIN_TOL)
+    # 从第一个有效点起连续 True 的末尾
+    i_last = -1
+    for i in range(err.size):
+        if BOOSTS[i] <= 0 or not np.isfinite(err[i]):
+            continue
+        if ok[i]:
+            i_last = i
+        else:
+            break
+    LIN_OK[n] = dict(
+        err=err,
+        i_last=i_last,
+        peak_max=float(S["peak_mu"][i_last]) if i_last >= 0 else np.nan,
+        boost_max=float(BOOSTS[i_last]) if i_last >= 0 else np.nan,
+        frac=float(S["peak_mu"][i_last] / S["n_tr"]) if i_last >= 0 else np.nan,
+    )
+
+fig, ax = plt.subplots(figsize=M3_LIN_FIGSIZE)
+ax.axhspan(-M3_LIN_TOL, M3_LIN_TOL, color="0.85", alpha=0.7, zorder=0,
+           label=f"|相对误差| ≤ {M3_LIN_TOL:.0%} 容差带")
+ax.axhline(0.0, color="0.35", ls=":", lw=1.2)
+for n in N_LIST:
+    S = STAT[n]
+    L = LIN_OK[n]
+    m = BOOSTS > 0
+    ax.plot(S["peak_mu"][m], L["err"][m], "-o", color=_COLOR_N[n],
+            lw=1.6, ms=M3_MARKER_MS,
+            label=f"N_shots={n}（n_tr={S['n_tr']}）")
+    if L["i_last"] >= 0:
+        ax.axvline(L["peak_max"], color=_COLOR_N[n], ls="--", lw=1.3, alpha=0.85)
+        ax.plot(L["peak_max"], L["err"][L["i_last"]], "*", color=_COLOR_N[n],
+                ms=14, mec="k", mew=0.6, zorder=5)
+ax.set_xlabel("peak 均值 [计数/bin]")
+ax.set_ylabel("相对误差 = peak / (斜率×boost) − 1")
+ax.set_title(f"模块 3　附图：相对低能斜率的误差（容差 {M3_LIN_TOL:.0%}；"
+             f"虚线+★ = 连续满足容差的 peak 上限）", fontsize=10.5)
+if M3_LIN_XLIM_PEAK is not None:
+    ax.set_xlim(*M3_LIN_XLIM_PEAK)
+else:
+    # 横轴铺到略超过最远的 5% 越界点，让上限位置清楚；别被饱和段拖到 n_tr
+    _xmax = max((L["peak_max"] for L in LIN_OK.values() if np.isfinite(L["peak_max"])),
+                default=10.0)
+    ax.set_xlim(0.0, max(2.0, 1.6 * _xmax))
+if M3_LIN_YLIM_ERR is not None:
+    ax.set_ylim(*M3_LIN_YLIM_ERR)
+ax.grid(alpha=0.3)
+ax.legend(fontsize=8, loc="best")
+fig.tight_layout()
+plt.show()
+
 print("=" * 96)
 print("低能段线性度体检：peak 均值 / (斜率 × boost)，等于 1 就是严格正比")
 print(f"  {'boost':>10}" + "".join(f"{'N=' + str(n):>22}" for n in N_LIST))
@@ -436,6 +730,20 @@ for i, b in enumerate(BOOSTS):
         mu, ref = S["peak_mu"][i], S["lin_slope"] * b
         row += f"{mu:>12.3f}（{mu / ref if ref > 0 else np.nan:>5.3f}）"
     print(row)
+
+print("\n" + "=" * 96)
+print(f"|相对误差| ≤ {M3_LIN_TOL:.0%} 的连续线性区（从低能往上，一旦越界即停；"
+      f"斜率=模块0低能段拟合）")
+print(f"  {'N':>3} {'n_tr':>5} {'斜率':>10} {'peak上限':>10} {'占硬上限':>10} "
+      f"{'对应boost':>12} {'该档相对误差':>14}")
+for n in N_LIST:
+    S, L = STAT[n], LIN_OK[n]
+    if L["i_last"] < 0:
+        print(f"  {n:>3} {S['n_tr']:>5} {S['lin_slope']:>10.2f} {'—':>10}")
+        continue
+    e = L["err"][L["i_last"]]
+    print(f"  {n:>3} {S['n_tr']:>5} {S['lin_slope']:>10.2f} {L['peak_max']:>10.2f} "
+          f"{L['frac']:>10.1%} {L['boost_max']:>12.5g} {e:>+14.2%}")
 """)
 
 # =====================================================================

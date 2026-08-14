@@ -6,8 +6,15 @@
 
 ## 当前版本
 
-**v01-e**（主口径 = `f_pix` 均匀照度；引擎已修饱和丢覆盖 bug），
+**v01-h**（模块 3 含线性拟合 + 饱和指数拟合 + 5% 线性区），
 主产物 `peak_vs_energy_v01.ipynb`（20 个 cell：markdown 8 / code 12）。
+
+## 仓库同步状态（2026-08-14）
+
+- 保留原有内部远端 `origin`，新增 GitHub 镜像远端 `github`。
+- GitHub 目标仓库：`https://github.com/zuqingwang/histogram_simulation.git`，同步分支为 `master`。
+- 发布前已重新运行 `python build_peak_vs_energy.py`，并运行
+  `python -u check_peak_vs_energy.py`；全部 12 个 code cell 通过，生成 8 张校验图。
 
 > ⚠️ 2026-08-10 修了 `pod_esti_v30_core.binary_macro_stepping*` 在**饱和**时丢过阈覆盖的 bug
 > （详见下方 v01-e 条目）。**修复前产生的一切饱和区数值全部作废**，
@@ -50,6 +57,11 @@ notebook 读的是 `scan.CACHE`，跟着模式自动切。
 | `FWHM_MIN_PEAK` | 4 计数 | `run_peak_energy_scan.py` |
 | `MC_CHUNK` / `CHECKPOINT_EVERY` | 2500 / 6 | `run_peak_energy_scan.py` |
 | `T_OVER` | ≈ 8.00 ns（导出量） | `pod_esti_v30_core` |
+| `M3_LIN_TOL` | **0.05**（模块 3：\|相对误差\|≤5% 视为线性） | `build_peak_vs_energy.py` 模块 3 参数 cell |
+| `M3_FIT_XLIM` | **(0, 0.1)**（拟合双轴图横轴 boost 范围） | 同上 |
+| `M3_FIT_SLOPE_MODE` | **`"low_energy"`**（低能点定斜率；可选 `"full_window"`） | 同上 |
+| `M3_EXP_ENABLE` | **True**（饱和指数拟合图） | 同上 |
+| `M3_EXP_A_MODE` | **`"free"`**（拟合渐近线 A；可选 `"n_tr"` 固定） | 同上 |
 
 ## 待办
 
@@ -67,6 +79,9 @@ notebook 读的是 `scan.CACHE`，跟着模式自动切。
       这类深饱和数值是用旧引擎测的，必须复核
 - [ ] **复核 PoD_esti v30 信号侧缓存**（`run_pod_v30_sig_scan.py` 用同一引擎）。
       近门限低占空区两套引擎一致，结论大概率不变，但要确认
+- [x] 模块 3 新增「|相对误差|≤5% 连续线性区」附图（`M3_LIN_TOL`）
+- [x] 模块 3 新增 boost∈[0,0.1] 拟合双轴图（左 peak / 右相对误差）
+- [x] 模块 3 新增饱和指数拟合 `A(1-e^{-αb})` 双轴图
 - [ ] 在 Jupyter 里 Restart & Run All 确认渲染效果（缓存齐全，只是看排版）
 - [ ] （可选）uniform 网格里 `boost ∈ [0.15, 0.5]` 采样偏疏（步长 0.05），
       模块 2 的密度条带在这一段格子偏宽、有块状感。
@@ -80,6 +95,76 @@ notebook 读的是 `scan.CACHE`，跟着模式自动切。
 ---
 
 # 二、历史记录（只追加，不删改）
+
+## v01-h（2026-08-13）模块 3 新增饱和指数拟合
+
+### 结论（先说）
+
+可以用，但要用**饱和指数** `peak ≈ A(1 − e^{−α·boost})`，不要用无界的 `A·e^{bx}`。
+在 boost∈[0, 0.1] 上（A 自由拟合）：
+
+| N | A | α | A·α（低能斜率） | 低能线性斜率 | RMSE_指数 | RMSE_线性 | 窗末相对误差 |
+|---|---|---|---|---|---|---|---|
+| 1 | 26.95 | 23.53 | 634 | 621 | **0.017** | 10.5 | +0.16% |
+| 2 | 53.91 | 23.44 | 1264 | 1273 | **0.031** | 21.9 | +0.11% |
+| 4 | 107.87 | 23.37 | 2520 | 2547 | **0.048** | 44.0 | +0.07% |
+
+A ≈ n_tr，α ≈ 23.4（三档几乎相同）；相对线性 RMSE 降约 **600–900 倍**。
+
+### 新增
+
+- 参数：`M3_EXP_ENABLE` / `M3_EXP_A_MODE`（`free`|`n_tr`）/ `M3_EXP_SHOW_LIN` / `M3_EXP_YLIM_ERR`
+- 图：饱和指数双轴（无头校验里现为 `pve_m11_4.png`）；5% 线性区顺延一格
+
+---
+
+## v01-g（2026-08-13）模块 3 新增 boost∈[0,0.1] 拟合双轴图
+
+### 新增
+
+- 模块 3 在图 i 之后、5% 线性区图之前，新增三列双纵轴图（`pve_m11_3.png`）：
+  - 横轴：`boost ∈ [0, 0.1]`（`M3_FIT_XLIM`）
+  - 左纵轴：peak 均值（MC）+ 过原点拟合虚线
+  - 右纵轴：相对误差 `peak/(斜率×boost)−1`，并可选叠 ±5% 参考带
+- 斜率模式 `M3_FIT_SLOPE_MODE`：
+  - **`"low_energy"`（默认）**：窗内且 `peak ≤ LIN_FIT_PEAK_MAX` 的点过原点拟合 → 真正线性参考；
+    窗末相对误差约 **−60%**（N=1/2/4 几乎重合）
+  - `"full_window"`：用窗内全部点拟合（会被饱和压低斜率，残差先正后负，不推荐作「可当线性」判据）
+- 5% 线性区图仍保留（现为 `pve_m11_4.png`），斜率继续用模块 0 低能段 `STAT['lin_slope']`。
+
+### 关键数值（uniform，默认 low_energy）
+
+| N | 斜率 | 窗末 peak（boost=0.1） | 窗末相对误差 |
+|---|---|---|---|
+| 1 | 621.5 | 24.42 | ≈ −61% |
+| 2 | 1272.5 | 48.79 | ≈ −61% |
+| 4 | 2547.4 | 97.51 | ≈ −61% |
+
+相对误差曲线三档 N 几乎重合 ⇒ 非线性主要是 boost / 占空比效应，不是 N 本身。
+
+---
+
+## v01-f（2026-08-13）模块 3 新增「5% 线性区」附图
+
+### 新增
+
+- 模块 3 在图 i（三面板）之后多一张附图 `pve_m11_3.png`：
+  横轴 = peak 均值，纵轴 = `peak/(斜率×boost) − 1`，灰带 ±`M3_LIN_TOL`（默认 5%）。
+- 口径：从低能往上**连续**满足 `|err| ≤ 5%` 的最后一档；一旦越界即停（不允许中间回弹再算线性）。
+- 参数：`M3_LIN_TOL` / `M3_LIN_XLIM_PEAK` / `M3_LIN_YLIM_ERR` / `M3_LIN_FIGSIZE`。
+- 改 `build_peak_vs_energy.py` → `python build_peak_vs_energy.py` → `check_peak_vs_energy.py` 已过。
+
+### 关键数值（uniform，`M3_LIN_TOL=0.05`）
+
+| N_shots | n_tr | 斜率 | peak 上限 | 占硬上限 | 对应 boost | 该档相对误差 |
+|---|---|---|---|---|---|---|
+| 1 | 27 | 621.46 | **3.02** | 11.2% | 0.005 | −2.72% |
+| 2 | 54 | 1272.54 | **5.45** | 10.1% | 0.0045 | −4.79% |
+| 4 | 108 | 2547.37 | **9.69** | 9.0% | 0.004 | −4.91% |
+
+约在硬上限 **9–11%** 处离开 5% 线性带（比旧「10% 以内线性」表更严、更贴「可当线性」口径）。
+
+---
 
 ## v01（2026-08-10）建立工作，完成能量扫描全流程
 
@@ -683,3 +768,23 @@ bin 是按时间顺序出的，于是只要把「确实早于 `c` 的雪崩」�
   `PermissionError: [WinError 5]`。15 min 的扫描在最后一步存盘失败。
 - 正确做法：`_save()` 捕获 `PermissionError`，改写到 `<path>.new.npz` 并打印醒目提示。
   结果绝不能因为一个文件锁就丢掉。
+
+---
+
+## 2026-08-14：GitHub 双远端发布
+
+### 新增
+
+- 本地仓库新增远端 `github`，地址为
+  `https://github.com/zuqingwang/histogram_simulation.git`；原 `origin` 保持不变。
+- 将当前 `master` 的完整历史与本次 `peak_vs_energy` 工作成果同步到两个远端。
+
+### 发布前验证
+
+- `python build_peak_vs_energy.py`：成功生成 20 个 cell 的 `peak_vs_energy_v01.ipynb`。
+- `python -u check_peak_vs_energy.py`：全部 12 个 code cell 通过；使用微软雅黑字体，生成 8 张校验图。
+- 本地扫描未发现常见私钥、访问令牌或明文密码模式；最大历史文件约 25.1 MB，低于 GitHub 单文件限制。
+
+### 参数改动
+
+- 无。本次只做派生产物重建、校验、文档记录与仓库发布。
